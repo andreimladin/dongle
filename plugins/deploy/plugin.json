@@ -1,0 +1,15 @@
+{
+  "apiVersion": "dongle.plugin/v1",
+  "name": "deploy",
+  "version": "2.3.1",
+  "description": "Deploy services to the platform",
+  "entrypoint": "dongle-deploy",
+  "requires": { "host": ">=2.0.0", "protocol": "v1" },
+  "auth": [
+    { "provider": "platform-oidc", "scopes": ["deploy:write"], "injectAs": "file" },
+    { "provider": "registry-token", "injectAs": "env", "envVar": "DONGLE_REGISTRY_TOKEN" }
+  ],
+  "commands": [
+    { "name": "deploy", "short": "Deploy a service" }
+  ]
+}
