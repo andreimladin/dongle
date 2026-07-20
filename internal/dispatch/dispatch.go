@@ -107,7 +107,8 @@ func randHex(n int) string {
 }
 
 // satisfiesHost supports the constraint forms this scaffold needs: "" (any),
-// ">=x.y.z", and exact "x.y.z". For full ranges (^, ~, <, ||) drop in a real
+// ">=", "<=", ">", "<" comparisons, "^x.y.z" / "~x.y.z" ranges, and exact
+// "x.y.z". For "||" combinators or pre-release-aware ordering, drop in a real
 // semver library such as github.com/Masterminds/semver.
 func satisfiesHost(hostVersion, constraint string) (bool, error) {
 	constraint = strings.TrimSpace(constraint)
@@ -118,13 +119,45 @@ func satisfiesHost(hostVersion, constraint string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if strings.HasPrefix(constraint, ">=") {
-		cv, err := parseSemver(strings.TrimSpace(constraint[2:]))
+
+	for _, op := range []string{">=", "<=", ">", "<"} {
+		if strings.HasPrefix(constraint, op) {
+			cv, err := parseSemver(strings.TrimSpace(constraint[len(op):]))
+			if err != nil {
+				return false, err
+			}
+			cmp := compareSemver(hv, cv)
+			switch op {
+			case ">=":
+				return cmp >= 0, nil
+			case "<=":
+				return cmp <= 0, nil
+			case ">":
+				return cmp > 0, nil
+			case "<":
+				return cmp < 0, nil
+			}
+		}
+	}
+
+	// ^x.y.z: compatible within the same major version, at least x.y.z.
+	if strings.HasPrefix(constraint, "^") {
+		cv, err := parseSemver(strings.TrimSpace(constraint[1:]))
 		if err != nil {
 			return false, err
 		}
-		return compareSemver(hv, cv) >= 0, nil
+		return hv[0] == cv[0] && compareSemver(hv, cv) >= 0, nil
 	}
+
+	// ~x.y.z: compatible within the same major.minor version, at least x.y.z.
+	if strings.HasPrefix(constraint, "~") {
+		cv, err := parseSemver(strings.TrimSpace(constraint[1:]))
+		if err != nil {
+			return false, err
+		}
+		return hv[0] == cv[0] && hv[1] == cv[1] && compareSemver(hv, cv) >= 0, nil
+	}
+
 	cv, err := parseSemver(constraint)
 	if err != nil {
 		return false, err

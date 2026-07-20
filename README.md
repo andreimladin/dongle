@@ -80,8 +80,9 @@ and a slow-moving **protocol version**. The host checks both `requires.host` and
    `Login`'s stub with a real flow.
 4. **install → real registry**: point `internal/plugincmd.install` at a
    krew-style index, download the per-platform artifact, verify its sha256.
-5. **semver**: `internal/dispatch` handles `>=`/exact only; drop in
-   `github.com/Masterminds/semver` for full ranges.
+5. **semver**: `internal/dispatch` handles `>=`, `<=`, `>`, `<`, `^`, `~`, and
+   exact match; drop in `github.com/Masterminds/semver` if you need `||`
+   combinators or pre-release-aware ordering.
 6. **mid-run token refresh** (optional): host opens a local unix socket, passes
    its path via env, plugin requests fresh scoped tokens as a short-lived
    client. Still one-shot, still local.
