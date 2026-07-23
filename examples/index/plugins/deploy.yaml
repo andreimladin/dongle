@@ -1,0 +1,24 @@
+# Example entry for the dongle-index git repo. The filename (deploy.yaml) is the
+# plugin name: it registers `dongle deploy`. This is the index-side manifest — a
+# superset of the plugin.json that ships inside the tarball, adding discovery +
+# download coordinates (feed + per-platform file + sha256).
+name: deploy
+version: v2.3.1
+shortDescription: Deploy services to the platform
+requires:
+  host: ">=0.1.0"
+  protocol: "v1"
+feed:
+  organization: acme
+  feed: dongle-plugins
+  packageType: upack          # Azure Artifacts Universal Package
+  packageName: dongle-deploy  # one package per plugin, in the shared feed
+platforms:
+  - selector: { os: darwin, arch: arm64 }
+    file: dongle-deploy_2.3.1_darwin_arm64.tar.gz
+    sha256: "REPLACE_WITH_REAL_SHA256"
+    bin: dongle-deploy
+  - selector: { os: linux, arch: amd64 }
+    file: dongle-deploy_2.3.1_linux_amd64.tar.gz
+    sha256: "REPLACE_WITH_REAL_SHA256"
+    bin: dongle-deploy
