@@ -1,7 +1,8 @@
 # Build output
 /dist/
-/dongle
-/dongle-deploy
+dongle
+dongle-deploy
+out/
 
 # Go
 *.exe

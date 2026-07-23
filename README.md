@@ -2,102 +2,106 @@
 
 > One CLI. Plug in the rest.
 
-**dongle** is a host CLI that your other CLIs plug into. Each one is a
-**one-shot plugin** you plug in, version, and unplug independently — one
-connector spec, any language, no background services. The host is the single
-front door for authentication, so it feels like one tool even when each plugin
-authenticates differently.
+**dongle** is a host CLI that your other CLIs plug into. Each one is a **one-shot
+plugin** you plug in, version, and unplug independently — one connector spec, any
+language, no background services. The host is the single front door for
+authentication, so it feels like one tool even when each plugin authenticates
+differently.
 
-> ⚠️ Proof of concept. Stdlib-only, no external dependencies.
+This repo is the hand-built version, assembled step by step. It compiles and
+runs end to end via the **local-dir install path**; the **index/feed install
+path** is fully wired except for the one Azure-feed download call, which is a
+clearly marked stub.
+
+## Build & run
+
+The host has a single external dependency (`gopkg.in/yaml.v3`, for the index),
+so run `go mod tidy` once (needs network), then build:
 
 ```sh
-dongle plugin install deploy     # plug a CLI in
-dongle deploy run billing        # use it (host brokers its credentials)
-dongle plugin uninstall deploy   # unplug it
+go mod tidy
+go build ./...      # builds the host (examples/ is a separate module)
+sh demo.sh          # local-dir install + credential broker, end to end
 ```
 
-## Run it
+`demo.sh` isolates state under `./dist` via `DONGLE_DATA_DIR`.
 
-```sh
-go build ./...     # builds host + sample plugin, no `go get` needed
-sh demo.sh         # full walkthrough: build → install → login → run → unplug
-```
+## What works vs. what's stubbed
 
-`demo.sh` isolates state under `./dist` via `DONGLE_DATA_DIR`, so it won't touch
-your real `~/.local/share/dongle`.
+Real and testable now:
 
-## How it works
+- Plugin **dispatch** — unknown command → resolve via `state.json` → load
+  `plugin.json` → compat gate → broker credentials → exec one-shot child.
+- **install / uninstall / list** from a local build dir; **search** from the
+  index cache.
+- **Compatibility gates** (`requires.host` range + `requires.protocol` exact) at
+  both install time and dispatch time, from the shared `internal/compat`.
+- **Credential broker**: `login`/`logout`, a `0600` credential store, and
+  per-exec injection (`injectAs: file` → temp `0600` file; `env` → env var),
+  torn down after the plugin exits.
+- **Embedded git index**: `dongle index refresh|status`, 24h TTL cache,
+  offline-tolerant refresh, `plugin search`, and install-by-name resolution up
+  to the download.
 
-The host execs `dongle-<name> <args...>` as a short-lived child. Everything the
-plugin needs arrives through a language-agnostic **connector spec**:
+Marked stubs (the seams are in place):
 
-- **argv** — everything after the plugin name.
-- **env** — `DONGLE_VERSION`, `DONGLE_PROTOCOL`, `DONGLE_PLUGIN_NAME`,
-  `DONGLE_INVOCATION_ID`, `DONGLE_OUTPUT`, plus any `injectAs:"env"` credentials.
-- **`DONGLE_CREDENTIALS_FILE`** — path to a 0600 JSON file `{"tokens":{...}}` for
-  `injectAs:"file"` credentials; deleted after the plugin exits.
-- **stdin/stdout/stderr/TTY inherited** — prompts and colors just work.
-- **exit code** — propagated by the host.
-
-Any language that can read env + a file and return an exit code is a valid
-plugin. No gRPC, no persistent services.
-
-## Vocabulary
-
-| concept | in dongle |
-|---|---|
-| a plugin | a **device** you plug in |
-| install / uninstall | **plug in** / **unplug** |
-| host↔plugin contract | the **connector spec** |
-| installed set | **what's plugged in** |
+- `internal/auth.Login` mints a fake token → replace with the **Entra ID
+  (Azure AD) device-code flow** (password + Authenticator number-match happen on
+  Microsoft's side; store access+refresh+expiry).
+- `internal/plugincmd.downloadArtifact` → implement the **Azure feed** pull
+  (`az artifacts universal download` first, REST + brokered token later).
+  `verifySHA256` and `untar` around it are already real.
 
 ## Layout
 
 ```
-cmd/dongle/          host entry; builtin command switch
-internal/manifest/   plugin.json schema + loader
-internal/state/      installed-plugin registry + on-disk paths
-internal/auth/       credential store, login, injection (the broker)
-internal/dispatch/   resolver: compat check -> auth -> exec (the core)
-internal/plugincmd/  `dongle plugin list|install|uninstall`
-pkg/pluginsdk/       helpers for Go plugin authors
-plugins/deploy/      sample plugin + its manifest
+cmd/dongle/            host entry; builtin switch + plugin dispatch
+internal/compat/       semver + host/protocol gate (single source of truth)
+internal/manifest/     plugin.json (runtime manifest) loader
+internal/state/        installed-plugin registry + on-disk paths
+internal/auth/         credential store, login/logout, per-exec injection
+internal/dispatch/     resolve -> compat -> broker -> exec
+internal/plugincmd/    plugin list/search/install/uninstall (+ index resolver)
+internal/index/        embedded git catalog: clone/TTL-pull cache, lookups
+pkg/pluginsdk/         helpers for Go plugin authors
+examples/dongle-deploy/  sample cobra plugin (its own module)
+examples/index/          sample index-repo manifest (Azure feed coordinates)
 ```
+
+## The host↔plugin contract (language-agnostic)
+
+The host execs `dongle-<name> <args...>` with:
+
+- **argv** — everything after the plugin name.
+- **env** — `DONGLE_VERSION`, `DONGLE_PROTOCOL`, `DONGLE_PLUGIN_NAME`,
+  `DONGLE_INVOCATION_ID`, `DONGLE_OUTPUT`, plus any `injectAs:"env"` credentials.
+- **`DONGLE_CREDENTIALS_FILE`** — path to a `0600` JSON file `{"tokens":{...}}`
+  for `injectAs:"file"` credentials; deleted after the plugin exits.
+- **stdin/stdout/stderr/TTY inherited** — prompts and colors just work.
+- **exit code** — propagated.
+
+An existing **cobra** CLI becomes a plugin by setting its root command's `Use` to
+the plugin name and shipping a `plugin.json`; its whole subcommand tree keeps
+working because dispatch hands args straight to cobra. See
+`examples/dongle-deploy`.
 
 ## Three version axes
 
-Bound by each manifest's `requires`: the host's semver, each plugin's semver,
-and a slow-moving **protocol version**. The host checks both `requires.host` and
-`requires.protocol` before it execs a plugin.
+Bound by each manifest's `requires`: the host's semver (`hostVersion` in
+`cmd/dongle/main.go`), each plugin's semver, and a slow-moving protocol version.
+Host and protocol are separate constants so they release independently.
 
-## This is a skeleton — the swap points
+## Publishing a plugin (git index + shared Azure feed)
 
-1. **Manifests → YAML**: import `gopkg.in/yaml.v3`, swap the `json.Unmarshal` in
-   `internal/manifest`.
-2. **Builtins → cobra**: replace the switch in `cmd/dongle/main.go`.
-3. **Credential store → OS keychain**: replace `readStore`/`save` in
-   `internal/auth` with Keychain / Credential Manager / libsecret; replace
-   `Login`'s stub with a real flow.
-4. **install → real registry**: point `internal/plugincmd.install` at a
-   krew-style index, download the per-platform artifact, verify its sha256.
-5. **semver**: `internal/dispatch` handles `>=`, `<=`, `>`, `<`, `^`, `~`, and
-   exact match; drop in `github.com/Masterminds/semver` if you need `||`
-   combinators or pre-release-aware ordering.
-6. **mid-run token refresh** (optional): host opens a local unix socket, passes
-   its path via env, plugin requests fresh scoped tokens as a short-lived
-   client. Still one-shot, still local.
+1. Build per-`os/arch` tarballs (binary + `plugin.json`); record each `sha256`.
+2. Publish to the shared Azure Artifacts feed as a Universal Package (one package
+   per plugin): `az artifacts universal publish --feed dongle-plugins --name
+   dongle-deploy --version 2.3.1 --path ./dist`.
+3. PR `plugins/<name>.yaml` to the index repo (version + feed coords +
+   checksums). See `examples/index/plugins/deploy.yaml`.
 
-## Publishing this
-
-The module path is a placeholder. Before you push, replace `andreimladin` with your
-GitHub username everywhere:
-
-```sh
-grep -rl 'andreimladin' . | xargs sed -i 's/andreimladin/<your-github-username>/g'
-```
-
-(It builds locally either way — Go only fetches remote modules for *external*
-imports, and there are none.)
+Set the embedded index URL in `internal/index/index.go` (`IndexURL`).
+`DONGLE_INDEX_URL` overrides it for dev.
 
 ## License
 

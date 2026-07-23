@@ -1,53 +1,33 @@
-// Package manifest defines the local plugin manifest and how to load it.
-//
-// The design spec writes this as plugin.yaml; this scaffold uses JSON so it
-// builds with zero external dependencies. To use YAML instead, import
-// gopkg.in/yaml.v3 and replace the json.Unmarshal call in Load — nothing else
-// changes.
+// Package manifest describes a plugin and loads the plugin.json that ships
+// inside each plugin's release artifact, next to the entrypoint binary.
 package manifest
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/andreimladin/dongle/internal/compat"
 )
 
-// Manifest ships next to each plugin binary and is read by the host at
-// dispatch time.
 type Manifest struct {
-	APIVersion  string      `json:"apiVersion"` // protocol id, e.g. "dongle.plugin/v1"
-	Name        string      `json:"name"`       // command it registers: `dongle <name>`
-	Version     string      `json:"version"`    // plugin's own semver
-	Description string      `json:"description"`
-	Entrypoint  string      `json:"entrypoint"` // binary filename inside the version dir
-	Requires    Requires    `json:"requires"`
-	Auth        []AuthEntry `json:"auth"`
-	Commands    []Command   `json:"commands"`
+	Name        string          `json:"name"`        // registers `dongle <name>`
+	Version     string          `json:"version"`     // plugin's own semver
+	Description string          `json:"description"`
+	Entrypoint  string          `json:"entrypoint"`  // binary filename in the version dir
+	Requires    compat.Requires `json:"requires"`    // host + protocol gate
+	Auth        []AuthEntry     `json:"auth"`        // credentials the host must broker
 }
 
-// Requires binds the three version axes: this plugin needs a host that
-// satisfies Host and speaks Protocol.
-type Requires struct {
-	Host     string `json:"host"`     // semver constraint, e.g. ">=2.0.0"
-	Protocol string `json:"protocol"` // protocol id, e.g. "v1"
-}
-
-// AuthEntry declares one credential the host must broker to the plugin.
+// AuthEntry declares one credential the host brokers to the plugin. The plugin
+// never obtains it; it only consumes what the host injects.
 type AuthEntry struct {
-	Provider string   `json:"provider"`
-	Scopes   []string `json:"scopes"`
-	InjectAs string   `json:"injectAs"` // "file" (default) | "env"
-	EnvVar   string   `json:"envVar"`   // env name to use when InjectAs == "env"
+	Provider string   `json:"provider"`           // which credential, e.g. "platform-oidc"
+	Scopes   []string `json:"scopes,omitempty"`   // for display / least-privilege
+	InjectAs string   `json:"injectAs,omitempty"` // "file" (default) | "env"
+	EnvVar   string   `json:"envVar,omitempty"`   // env name when InjectAs == "env"
 }
 
-// Command is help/completion metadata so the host can render top-level help
-// without exec-ing every plugin.
-type Command struct {
-	Name  string `json:"name"`
-	Short string `json:"short"`
-}
-
-// Load reads and validates a manifest file.
 func Load(path string) (*Manifest, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -58,7 +38,7 @@ func Load(path string) (*Manifest, error) {
 		return nil, fmt.Errorf("parse manifest %s: %w", path, err)
 	}
 	if m.Name == "" || m.Entrypoint == "" {
-		return nil, fmt.Errorf("manifest %s: fields 'name' and 'entrypoint' are required", path)
+		return nil, fmt.Errorf("manifest %s: name and entrypoint required", path)
 	}
 	return &m, nil
 }
