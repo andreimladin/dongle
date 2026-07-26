@@ -36,7 +36,7 @@ func Run(hostVersion, protocol string, args []string) int {
 		return search()
 	case "install":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: dongle plugin install <name|dir>")
+			fmt.Fprintln(os.Stderr, "usage: dongle plugin install <name>")
 			return 2
 		}
 		return install(hostVersion, protocol, args[1])
@@ -92,13 +92,9 @@ func search() int {
 	return 0
 }
 
-// install accepts either a local build dir (contains plugin.json + binary) or a
-// bare plugin name to resolve from the index.
-func install(hostVersion, protocol, arg string) int {
-	if fi, err := os.Stat(arg); err == nil && fi.IsDir() {
-		return installFromDir(hostVersion, protocol, arg)
-	}
-	return installFromName(hostVersion, protocol, arg)
+// install resolves name from the index and installs it.
+func install(hostVersion, protocol, name string) int {
+	return installFromName(hostVersion, protocol, name)
 }
 
 func installFromName(hostVersion, protocol, name string) int {
@@ -141,11 +137,11 @@ func installFromName(hostVersion, protocol, name string) int {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	return installFromDir(hostVersion, protocol, tmpDir)
+	return installStaged(hostVersion, protocol, tmpDir)
 }
 
 // fetchAndUnpack downloads the artifact from the Azure feed, verifies its
-// checksum, and unpacks it into a temp dir ready for installFromDir.
+// checksum, and unpacks it into a temp dir ready for installStaged.
 //
 // TODO(feed): implement downloadArtifact using the Azure CLI for the first cut:
 //
@@ -179,12 +175,14 @@ func fetchAndUnpack(e *index.PluginIndexEntry, plat *index.Platform) (string, er
 // downloadArtifact is the one unimplemented seam. See fetchAndUnpack's TODO.
 func downloadArtifact(e *index.PluginIndexEntry, plat *index.Platform) (string, error) {
 	return "", fmt.Errorf(
-		"feed download not yet implemented: would pull %s@%s file %s from Azure feed %s/%s\n"+
-			"       (for now, build locally and run: dongle plugin install <dir>)",
+		"feed download not yet implemented: would pull %s@%s file %s from Azure feed %s/%s",
 		e.Feed.PackageName, e.Version, plat.File, e.Feed.Organization, e.Feed.Feed)
 }
 
-func installFromDir(hostVersion, protocol, srcDir string) int {
+// installStaged is not a user entry point: it only receives an
+// already-resolved/unpacked dir produced by fetchAndUnpack, and the index
+// resolver (installFromName) is its only caller.
+func installStaged(hostVersion, protocol, srcDir string) int {
 	m, err := manifest.Load(filepath.Join(srcDir, "plugin.json"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

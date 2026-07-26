@@ -81,7 +81,6 @@ Builtins:
   dongle version
   dongle plugin search             list plugins available in the index
   dongle plugin install <name>     install a plugin from the index
-  dongle plugin install <dir>      install a plugin from a local build dir
   dongle plugin list               list installed plugins
   dongle plugin uninstall <name>
   dongle index refresh             force-refresh the index cache
