@@ -1,0 +1,10 @@
+{
+  "name": "deploy",
+  "version": "2.3.1",
+  "description": "Deploy services to the platform",
+  "entrypoint": "dongle-deploy",
+  "requires": { "host": ">=0.1.0", "protocol": "v1" },
+  "auth": [
+    { "provider": "platform-oidc", "scopes": ["deploy:write"], "injectAs": "file" }
+  ]
+}
