@@ -2,6 +2,7 @@
 /dist/
 /dongle
 /dongle-deploy
+/out/
 
 # Go
 *.exe
