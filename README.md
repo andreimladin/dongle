@@ -94,6 +94,26 @@ Host and protocol are separate constants so they release independently.
 Set the embedded index URL in `internal/index/index.go` (`IndexURL`).
 `DONGLE_INDEX_URL` overrides it for dev.
 
+## Index access
+
+The plugin index is a private Azure DevOps git repo, cloned/pulled by
+shelling out to your local `git` (`git@ssh.dev.azure.com:v3/...`, pinned to
+the `IndexBranch` in `internal/index/index.go`, currently `main`). dongle
+does not manage any credentials for this — no PATs or passwords are read,
+stored, or passed by the host — it just runs `git` and inherits whatever
+auth your machine already has configured (the krew model).
+
+For `git clone`/`git pull` against the index URL to work, you need either:
+
+- an SSH key registered with your Azure DevOps user (matches the embedded
+  `git@ssh.dev.azure.com` remote), or
+- Git Credential Manager configured for Azure DevOps (if you point
+  `DONGLE_INDEX_URL` at an `https://dev.azure.com/...` remote instead).
+
+Dev overrides: `DONGLE_INDEX_URL` points the host at a different index repo;
+`DONGLE_INDEX_BRANCH` pins a different branch. Neither is meant to be set by
+normal users.
+
 ## Before you publish this repo
 
 - Replace `andreimladin` with your GitHub/module path everywhere:

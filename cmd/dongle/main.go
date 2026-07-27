@@ -61,11 +61,11 @@ func indexCmd(args []string) int {
 		fmt.Println("index refreshed")
 		return 0
 	case "status":
-		url, age, cloned := index.Status()
+		url, branch, age, cloned := index.Status()
 		if !cloned {
-			fmt.Printf("index: %s (not yet cloned)\n", url)
+			fmt.Printf("index: %s (branch %s) (not yet cloned)\n", url, branch)
 		} else {
-			fmt.Printf("index: %s\ncache age: %s\n", url, age.Round(time.Second))
+			fmt.Printf("index: %s (branch %s)\ncache age: %s\n", url, branch, age.Round(time.Second))
 		}
 		return 0
 	default:
