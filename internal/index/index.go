@@ -20,15 +20,26 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-// IndexURL is the catalog git repository. Put your Azure DevOps repo URL here,
-// e.g. "https://dev.azure.com/acme/platform/_git/dongle-index".
-const IndexURL = "PUT_YOUR_INDEX_GIT_URL_HERE"
+// IndexURL is the catalog git repository: our private Azure DevOps repo,
+// addressed via its SSH remote. IndexBranch is the branch pinned for the
+// catalog clone/pull.
+const (
+	IndexURL    = "git@ssh.dev.azure.com:v3/[ORG]/[PROJECT]/[REPO]"
+	IndexBranch = "main"
+)
 
 func indexURL() string {
 	if v := os.Getenv("DONGLE_INDEX_URL"); v != "" {
 		return v
 	}
 	return IndexURL
+}
+
+func indexBranch() string {
+	if v := os.Getenv("DONGLE_INDEX_BRANCH"); v != "" {
+		return v
+	}
+	return IndexBranch
 }
 
 func cacheDir() string { return filepath.Join(state.DataDir(), "index") }
@@ -94,27 +105,29 @@ func Refresh() error {
 	return pull()
 }
 
-// Status reports where the index points and how old the cache is.
-func Status() (url string, age time.Duration, cloned bool) {
+// Status reports where the index points, which branch is pinned, and how old
+// the cache is.
+func Status() (url string, branch string, age time.Duration, cloned bool) {
 	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
-		return indexURL(), 0, false
+		return indexURL(), indexBranch(), 0, false
 	}
 	age, _ = cacheAge()
-	return indexURL(), age, true
+	return indexURL(), indexBranch(), age, true
 }
 
 func clone() error {
 	if err := os.MkdirAll(state.DataDir(), 0o755); err != nil {
 		return err
 	}
-	if err := run("git", "clone", "--depth", "1", indexURL(), cacheDir()); err != nil {
+	if err := run("git", "clone", "--depth", "1", "--branch", indexBranch(),
+		indexURL(), cacheDir()); err != nil {
 		return fmt.Errorf("clone index: %w", err)
 	}
 	return touchMeta()
 }
 
 func pull() error {
-	if err := run("git", "-C", cacheDir(), "pull", "--ff-only"); err != nil {
+	if err := run("git", "-C", cacheDir(), "pull", "--ff-only", "origin", indexBranch()); err != nil {
 		return fmt.Errorf("pull index: %w", err)
 	}
 	return touchMeta()
