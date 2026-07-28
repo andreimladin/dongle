@@ -1,8 +1,9 @@
 // Package index manages the embedded git-based plugin catalog: a local clone,
 // refreshed on a TTL, mapping plugin name -> version -> Azure feed artifact.
 //
-// The index URL is embedded (not user-editable). DONGLE_INDEX_URL overrides it
-// as a dev escape hatch; normal users never set it.
+// The index URL and branch are embedded (not user-editable). DONGLE_INDEX_URL
+// and DONGLE_INDEX_BRANCH override them as dev escape hatches; normal users
+// never set them.
 package index
 
 import (
@@ -20,15 +21,27 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-// IndexURL is the catalog git repository. Put your Azure DevOps repo URL here,
-// e.g. "https://dev.azure.com/acme/platform/_git/dongle-index".
-const IndexURL = "PUT_YOUR_INDEX_GIT_URL_HERE"
+// IndexURL is the catalog git repository: a private Azure DevOps repo served
+// over HTTPS. dongle does not manage credentials for it — cloning and pulling
+// shell out to the system `git`, which authenticates via Git Credential
+// Manager (or whatever credential helper the machine already has configured).
+const (
+	IndexURL    = "https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO]"
+	IndexBranch = "main"
+)
 
 func indexURL() string {
 	if v := os.Getenv("DONGLE_INDEX_URL"); v != "" {
 		return v
 	}
 	return IndexURL
+}
+
+func indexBranch() string {
+	if v := os.Getenv("DONGLE_INDEX_BRANCH"); v != "" {
+		return v
+	}
+	return IndexBranch
 }
 
 func cacheDir() string { return filepath.Join(state.DataDir(), "index") }
@@ -94,27 +107,29 @@ func Refresh() error {
 	return pull()
 }
 
-// Status reports where the index points and how old the cache is.
-func Status() (url string, age time.Duration, cloned bool) {
+// Status reports where the index points, which branch it's pinned to, and how
+// old the cache is.
+func Status() (url string, branch string, age time.Duration, cloned bool) {
 	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
-		return indexURL(), 0, false
+		return indexURL(), indexBranch(), 0, false
 	}
 	age, _ = cacheAge()
-	return indexURL(), age, true
+	return indexURL(), indexBranch(), age, true
 }
 
 func clone() error {
 	if err := os.MkdirAll(state.DataDir(), 0o755); err != nil {
 		return err
 	}
-	if err := run("git", "clone", "--depth", "1", indexURL(), cacheDir()); err != nil {
+	if err := run("git", "clone", "--depth", "1", "--branch", indexBranch(),
+		indexURL(), cacheDir()); err != nil {
 		return fmt.Errorf("clone index: %w", err)
 	}
 	return touchMeta()
 }
 
 func pull() error {
-	if err := run("git", "-C", cacheDir(), "pull", "--ff-only"); err != nil {
+	if err := run("git", "-C", cacheDir(), "pull", "--ff-only", "origin", indexBranch()); err != nil {
 		return fmt.Errorf("pull index: %w", err)
 	}
 	return touchMeta()
