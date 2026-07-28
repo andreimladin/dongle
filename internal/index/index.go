@@ -1,8 +1,9 @@
 // Package index manages the embedded git-based plugin catalog: a local clone,
 // refreshed on a TTL, mapping plugin name -> version -> Azure feed artifact.
 //
-// The index URL is embedded (not user-editable). DONGLE_INDEX_URL overrides it
-// as a dev escape hatch; normal users never set it.
+// The index URL and branch are embedded (not user-editable). DONGLE_INDEX_URL
+// and DONGLE_INDEX_BRANCH override them as dev escape hatches; normal users
+// never set them.
 package index
 
 import (
@@ -20,11 +21,12 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-// IndexURL is the catalog git repository: our private Azure DevOps repo,
-// addressed via its SSH remote. IndexBranch is the branch pinned for the
-// catalog clone/pull.
+// IndexURL is the catalog git repository: a private Azure DevOps repo served
+// over HTTPS. dongle does not manage credentials for it — cloning and pulling
+// shell out to the system `git`, which authenticates via Git Credential
+// Manager (or whatever credential helper the machine already has configured).
 const (
-	IndexURL    = "git@ssh.dev.azure.com:v3/[ORG]/[PROJECT]/[REPO]"
+	IndexURL    = "https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO]"
 	IndexBranch = "main"
 )
 
@@ -105,8 +107,8 @@ func Refresh() error {
 	return pull()
 }
 
-// Status reports where the index points, which branch is pinned, and how old
-// the cache is.
+// Status reports where the index points, which branch it's pinned to, and how
+// old the cache is.
 func Status() (url string, branch string, age time.Duration, cloned bool) {
 	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
 		return indexURL(), indexBranch(), 0, false

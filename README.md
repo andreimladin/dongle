@@ -96,29 +96,30 @@ Set the embedded index URL in `internal/index/index.go` (`IndexURL`).
 
 ## Index access
 
-The plugin index is a private Azure DevOps git repo, cloned/pulled by
-shelling out to your local `git` (`git@ssh.dev.azure.com:v3/...`, pinned to
-the `IndexBranch` in `internal/index/index.go`, currently `main`). dongle
-does not manage any credentials for this — no PATs or passwords are read,
-stored, or passed by the host — it just runs `git` and inherits whatever
-auth your machine already has configured (the krew model).
+The plugin index is a private Azure DevOps git repo, cloned over HTTPS.
+`dongle` does not manage credentials for it — it shells out to `git`, which
+authenticates using whatever git auth is already set up on your machine, via
+Git Credential Manager (GCM).
 
-For `git clone`/`git pull` against the index URL to work, you need either:
+One-time setup:
 
-- an SSH key registered with your Azure DevOps user (matches the embedded
-  `git@ssh.dev.azure.com` remote), or
-- Git Credential Manager configured for Azure DevOps (if you point
-  `DONGLE_INDEX_URL` at an `https://dev.azure.com/...` remote instead).
+1. Install GCM — it's bundled with Git for Windows; on macOS run `brew install
+   --cask git-credential-manager`; on Linux see the [GCM install
+   docs](https://github.com/git-ecosystem/git-credential-manager/blob/main/docs/install.md).
+2. Run `dongle index refresh` (or any `git clone`/`git pull` of the index
+   URL). The first time, GCM opens a browser to sign in with your company
+   Entra ID. After that, GCM caches the token and refreshes it silently —
+   nothing for you to rotate or maintain.
 
-Dev overrides: `DONGLE_INDEX_URL` points the host at a different index repo;
-`DONGLE_INDEX_BRANCH` pins a different branch. Neither is meant to be set by
-normal users.
+Dev overrides: `DONGLE_INDEX_URL` points at a different index repo,
+`DONGLE_INDEX_BRANCH` pins a different branch (both default to the embedded
+`IndexURL`/`IndexBranch` in `internal/index/index.go`).
 
 ## Before you publish this repo
 
 - Replace `andreimladin` with your GitHub/module path everywhere:
   `grep -rl andreimladin . | xargs sed -i 's/andreimladin/<you>/g'`
-- Set `IndexURL` in `internal/index/index.go`.
+- Set `IndexURL` and `IndexBranch` in `internal/index/index.go`.
 - Fill in the `LICENSE` year/name.
 
 ## License
