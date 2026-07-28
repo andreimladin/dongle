@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -130,60 +131,87 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	tmpDir, err := fetchAndUnpack(entry, plat)
+	staging, unpacked, err := fetchAndUnpack(entry, plat)
+	if staging != "" {
+		defer os.RemoveAll(staging)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	defer os.RemoveAll(tmpDir)
 
-	return installStaged(hostVersion, protocol, tmpDir)
+	return placePlugin(hostVersion, protocol, unpacked)
+}
+
+// stagingRoot returns a fresh temp dir under <dataDir>/.staging so that the
+// final os.Rename into plugins/<name>/<version>/ is same-filesystem.
+func stagingRoot() (string, error) {
+	base := filepath.Join(state.DataDir(), ".staging")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(base, "install-")
 }
 
 // fetchAndUnpack downloads the artifact from the Azure feed, verifies its
-// checksum, and unpacks it into a temp dir ready for installStaged.
-//
-// TODO(feed): implement downloadArtifact using the Azure CLI for the first cut:
-//
-//	az artifacts universal download \
-//	  --organization https://dev.azure.com/<org> \
-//	  --feed <feed> --name <packageName> --version <version> \
-//	  --path <tmp>
-//
-// then select plat.File from the downloaded package. Later, swap for the Azure
-// DevOps Artifacts REST API to drop the az dependency. verifySHA256 and untar
-// below are already the real implementations.
-func fetchAndUnpack(e *index.PluginIndexEntry, plat *index.Platform) (string, error) {
-	tarPath, err := downloadArtifact(e, plat)
+// checksum, and unpacks it into staging/unpacked, ready for placePlugin.
+// staging is always returned (even on error) so the caller can clean it up.
+func fetchAndUnpack(e *index.PluginIndexEntry, plat *index.Platform) (staging, unpacked string, err error) {
+	staging, err = stagingRoot()
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+	dl := filepath.Join(staging, "download")
+	unpacked = filepath.Join(staging, "unpacked")
+
+	tarPath, err := downloadArtifact(e, plat, dl)
+	if err != nil {
+		return staging, "", err
 	}
 	if err := verifySHA256(tarPath, plat.SHA256); err != nil {
-		return "", err
+		return staging, "", err
 	}
-	dest, err := os.MkdirTemp("", "dongle-unpack-")
-	if err != nil {
-		return "", err
+	if err := untar(tarPath, unpacked); err != nil {
+		return staging, "", err
 	}
-	if err := untar(tarPath, dest); err != nil {
-		os.RemoveAll(dest)
-		return "", err
-	}
-	return dest, nil
+	return staging, unpacked, nil
 }
 
-// downloadArtifact is the one unimplemented seam. See fetchAndUnpack's TODO.
-func downloadArtifact(e *index.PluginIndexEntry, plat *index.Platform) (string, error) {
-	return "", fmt.Errorf(
-		"feed download not yet implemented: would pull %s@%s file %s from Azure feed %s/%s",
-		e.Feed.PackageName, e.Version, plat.File, e.Feed.Organization, e.Feed.Feed)
+// downloadArtifact shells out to the Azure CLI to pull the plugin's Universal
+// Package into destDir, then returns the path to plat.File within it.
+func downloadArtifact(e *index.PluginIndexEntry, plat *index.Platform, destDir string) (string, error) {
+	if _, err := exec.LookPath("az"); err != nil {
+		return "", fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", err
+	}
+	ver := strings.TrimPrefix(e.Version, "v") // upack versions are bare semver
+	cmd := exec.Command("az", "artifacts", "universal", "download",
+		"--organization", "https://dev.azure.com/"+e.Feed.Organization,
+		"--feed", e.Feed.Feed,
+		"--name", e.Feed.PackageName,
+		"--version", ver,
+		"--path", destDir,
+	)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("az download %s@%s: %w", e.Feed.PackageName, ver, err)
+	}
+	tarPath := filepath.Join(destDir, plat.File)
+	if _, err := os.Stat(tarPath); err != nil {
+		return "", fmt.Errorf("expected %s in package %s@%s, not found", plat.File, e.Feed.PackageName, ver)
+	}
+	return tarPath, nil
 }
 
-// installStaged is not a user entry point: it only receives an
+// placePlugin is not a user entry point: it only receives an
 // already-resolved/unpacked dir produced by fetchAndUnpack, and the index
-// resolver (installFromName) is its only caller.
-func installStaged(hostVersion, protocol, srcDir string) int {
-	m, err := manifest.Load(filepath.Join(srcDir, "plugin.json"))
+// resolver (installFromName) is its only caller. It places the unpacked
+// payload atomically (same-filesystem rename, since unpacked lives under the
+// staging root) and only updates state once the plugin is fully on disk.
+func placePlugin(hostVersion, protocol, unpacked string) int {
+	m, err := manifest.Load(filepath.Join(unpacked, "plugin.json"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -197,18 +225,27 @@ func installStaged(hostVersion, protocol, srcDir string) int {
 		return 1
 	}
 
-	dstDir := state.PluginVersionDir(m.Name, m.Version)
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+	if _, err := os.Stat(filepath.Join(unpacked, m.Entrypoint)); err != nil {
+		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", m.Entrypoint, m.Name, m.Version)
+		return 1
+	}
+
+	dst := state.PluginVersionDir(m.Name, m.Version)
+	if err := os.RemoveAll(dst); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if err := copyFile(filepath.Join(srcDir, "plugin.json"), filepath.Join(dstDir, "plugin.json"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if err := copyFile(filepath.Join(srcDir, m.Entrypoint), filepath.Join(dstDir, m.Entrypoint), 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
+	if err := os.Rename(unpacked, dst); err != nil {
+		// cross-filesystem safety net: staging is normally under the data dir
+		// (same filesystem as dst), but fall back to a copy if it isn't.
+		if cerr := copyTree(unpacked, dst); cerr != nil {
+			fmt.Fprintln(os.Stderr, "error: place plugin:", cerr)
+			return 1
+		}
 	}
 
 	st, err := state.Load()
@@ -266,6 +303,26 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return out.Chmod(mode)
+}
+
+// copyTree recursively copies src into dst, preserving file modes. It's the
+// EXDEV fallback for placePlugin when staging and the plugins dir aren't on
+// the same filesystem and os.Rename can't be used.
+func copyTree(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		return copyFile(path, target, info.Mode())
+	})
 }
 
 func verifySHA256(path, want string) error {
