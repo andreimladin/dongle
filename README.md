@@ -29,8 +29,9 @@ sh demo.sh          # local-dir install lifecycle, end to end
 
 Real and testable now:
 
-- Plugin **dispatch** — unknown command → resolve via `state.json` → load
-  `plugin.json` → compat gate → exec one-shot child, inheriting the terminal.
+- Plugin **dispatch** — unknown command → resolve via `state.json` (entrypoint +
+  requires recorded there at install time, no per-plugin manifest on disk) →
+  compat gate → exec one-shot child, inheriting the terminal.
 - **install / uninstall / list** from a local build dir; **search** from the
   index cache.
 - **Compatibility gates** (`requires.host` range + `requires.protocol` exact) at
@@ -53,8 +54,7 @@ brokering credentials into plugins).
 ```
 cmd/dongle/            host entry; builtin switch + plugin dispatch
 internal/compat/       semver + host/protocol gate (single source of truth)
-internal/manifest/     plugin.json (runtime manifest) loader
-internal/state/        installed-plugin registry + on-disk paths
+internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
 internal/plugincmd/    plugin list/search/install/uninstall (+ index resolver)
 internal/index/        embedded git catalog: clone/TTL-pull cache, lookups
@@ -72,19 +72,21 @@ The host execs `dongle-<name> <args...>` with:
 - **exit code** — propagated.
 
 An existing **cobra** CLI becomes a plugin by setting its root command's `Use` to
-the plugin name and shipping a `plugin.json`; its whole subcommand tree keeps
-working because dispatch hands args straight to cobra. It needs nothing from
-dongle — the context arrives as plain env vars. See `examples/dongle-deploy`.
+the plugin name and adding a manifest to the index (naming its per-platform
+binary and `requires`); its whole subcommand tree keeps working because
+dispatch hands args straight to cobra. It needs nothing from dongle — the
+context arrives as plain env vars. See `examples/dongle-deploy`.
 
 ## Three version axes
 
-Bound by each manifest's `requires`: the host's semver (`hostVersion` in
-`cmd/dongle/main.go`), each plugin's semver, and a slow-moving protocol version.
-Host and protocol are separate constants so they release independently.
+Bound by each plugin's manifest `requires`: the host's semver (`hostVersion`
+in `cmd/dongle/main.go`), each plugin's semver, and a slow-moving protocol
+version. Host and protocol are separate constants so they release
+independently.
 
 ## Publishing a plugin (git index + shared Azure feed)
 
-1. Build per-`os/arch` tarballs (binary + `plugin.json`); record each `sha256`.
+1. Build per-`os/arch` tarballs (just the binary); record each `sha256`.
 2. Publish to the shared Azure Artifacts feed as a Universal Package (one package
    per plugin): `az artifacts universal publish --feed dongle-plugins --name
    dongle-deploy --version 2.3.1 --path ./dist`.

@@ -1,8 +1,13 @@
 // Package state tracks installed plugins and the on-disk layout:
 //
-//	<dataDir>/plugins/<name>/<version>/{<entrypoint>, plugin.json}
+//	<dataDir>/plugins/<name>/<version>/<entrypoint>
 //	<dataDir>/state.json
 //	<dataDir>/index/            (the cloned index cache; owned by package index)
+//
+// There is no per-plugin manifest file on disk: the plugin's manifest is
+// resolved from the index at install time, and its runtime-relevant facts
+// (entrypoint, requires) are recorded into state.json so dispatch never has
+// to read anything but this file.
 //
 // Set DONGLE_DATA_DIR to override the root (used in tests so we don't touch the
 // real ~/.dongle).
@@ -12,11 +17,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/andreimladin/dongle/internal/compat"
 )
 
 type Installed struct {
-	Name          string `json:"name"`
-	ActiveVersion string `json:"activeVersion"`
+	Name          string          `json:"name"`
+	ActiveVersion string          `json:"activeVersion"`
+	Entrypoint    string          `json:"entrypoint"`
+	Requires      compat.Requires `json:"requires"`
 }
 
 type State struct {

@@ -18,7 +18,6 @@ import (
 
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/index"
-	"github.com/andreimladin/dongle/internal/manifest"
 	"github.com/andreimladin/dongle/internal/state"
 )
 
@@ -104,12 +103,12 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	entry, err := index.Manifest(name)
+	m, err := index.Load(name)
 	if errors.Is(err, index.ErrNotFound) {
 		// A miss is exactly when a stale cache is the likely cause — force a
 		// refresh and try once more before giving up.
 		if rerr := index.Refresh(); rerr == nil {
-			entry, err = index.Manifest(name)
+			m, err = index.Load(name)
 		}
 	}
 	if err != nil {
@@ -117,21 +116,21 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	if ok, reason, err := compat.Check(hostVersion, protocol, entry.Requires); err != nil {
-		fmt.Fprintln(os.Stderr, "error: bad constraint in index manifest:", err)
+	if ok, reason, err := compat.Check(hostVersion, protocol, m.Requires); err != nil {
+		fmt.Fprintln(os.Stderr, "error: bad constraint in manifest:", err)
 		return 1
 	} else if !ok {
-		fmt.Fprintf(os.Stderr, "error: %s %s — not installing\n", entry.Name, reason)
+		fmt.Fprintf(os.Stderr, "error: %s %s — not installing\n", m.Name, reason)
 		return 1
 	}
 
-	plat, err := entry.PlatformFor()
+	plat, err := m.PlatformFor()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
-	staging, unpacked, err := fetchAndUnpack(entry, plat)
+	staging, unpacked, err := fetchAndUnpack(m, plat)
 	if staging != "" {
 		defer os.RemoveAll(staging)
 	}
@@ -140,7 +139,7 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	return placePlugin(hostVersion, protocol, unpacked)
+	return placePlugin(m, plat, unpacked)
 }
 
 // stagingRoot returns a fresh temp dir under <dataDir>/.staging so that the
@@ -156,7 +155,7 @@ func stagingRoot() (string, error) {
 // fetchAndUnpack downloads the artifact from the Azure feed, verifies its
 // checksum, and unpacks it into staging/unpacked, ready for placePlugin.
 // staging is always returned (even on error) so the caller can clean it up.
-func fetchAndUnpack(e *index.PluginIndexEntry, plat *index.Platform) (staging, unpacked string, err error) {
+func fetchAndUnpack(m *index.Manifest, plat *index.Platform) (staging, unpacked string, err error) {
 	staging, err = stagingRoot()
 	if err != nil {
 		return "", "", err
@@ -164,7 +163,7 @@ func fetchAndUnpack(e *index.PluginIndexEntry, plat *index.Platform) (staging, u
 	dl := filepath.Join(staging, "download")
 	unpacked = filepath.Join(staging, "unpacked")
 
-	tarPath, err := downloadArtifact(e, plat, dl)
+	tarPath, err := downloadArtifact(m, plat, dl)
 	if err != nil {
 		return staging, "", err
 	}
@@ -179,63 +178,57 @@ func fetchAndUnpack(e *index.PluginIndexEntry, plat *index.Platform) (staging, u
 
 // downloadArtifact shells out to the Azure CLI to pull the plugin's Universal
 // Package into destDir, then returns the path to plat.File within it.
-func downloadArtifact(e *index.PluginIndexEntry, plat *index.Platform, destDir string) (string, error) {
+func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (string, error) {
 	if _, err := exec.LookPath("az"); err != nil {
 		return "", fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
 	}
-	ver := strings.TrimPrefix(e.Version, "v") // upack versions are bare semver
+	ver := strings.TrimPrefix(m.Version, "v") // upack versions are bare semver
 	args := []string{
 		"artifacts", "universal", "download",
-		"--organization", "https://dev.azure.com/" + e.Feed.Organization,
-		"--feed", e.Feed.Feed,
-		"--name", e.Feed.PackageName,
+		"--organization", "https://dev.azure.com/" + m.Feed.Organization,
+		"--feed", m.Feed.Feed,
+		"--name", m.Feed.PackageName,
 		"--version", ver,
 		"--path", destDir,
 	}
-	if e.Feed.Project != "" {
-		args = append(args, "--project", e.Feed.Project, "--scope", "project")
+	if m.Feed.Project != "" {
+		args = append(args, "--project", m.Feed.Project, "--scope", "project")
 	}
 	cmd := exec.Command("az", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("az download %s@%s: %w", e.Feed.PackageName, ver, err)
+		return "", fmt.Errorf("az download %s@%s: %w", m.Feed.PackageName, ver, err)
 	}
 	tarPath := filepath.Join(destDir, plat.File)
 	if _, err := os.Stat(tarPath); err != nil {
-		return "", fmt.Errorf("expected %s in package %s@%s, not found", plat.File, e.Feed.PackageName, ver)
+		return "", fmt.Errorf("expected %s in package %s@%s, not found", plat.File, m.Feed.PackageName, ver)
 	}
 	return tarPath, nil
 }
 
 // placePlugin is not a user entry point: it only receives an
 // already-resolved/unpacked dir produced by fetchAndUnpack, and the index
-// resolver (installFromName) is its only caller. It places the unpacked
+// resolver (installFromName) is its only caller. There is no plugin.json to
+// read — name, version, entrypoint, and requires all come from the manifest
+// and the platform selected for this download. It places the unpacked
 // payload atomically (same-filesystem rename, since unpacked lives under the
 // staging root) and only updates state once the plugin is fully on disk.
-func placePlugin(hostVersion, protocol, unpacked string) int {
-	m, err := manifest.Load(filepath.Join(unpacked, "plugin.json"))
-	if err != nil {
+func placePlugin(m *index.Manifest, plat *index.Platform, unpacked string) int {
+	entrypoint := filepath.Join(unpacked, plat.Bin)
+	if _, err := os.Stat(entrypoint); err != nil {
+		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", plat.Bin, m.Name, m.Version)
+		return 1
+	}
+	if err := os.Chmod(entrypoint, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
-	if ok, reason, err := compat.Check(hostVersion, protocol, m.Requires); err != nil {
-		fmt.Fprintln(os.Stderr, "error: bad constraint in manifest:", err)
-		return 1
-	} else if !ok {
-		fmt.Fprintf(os.Stderr, "error: %s %s — not installing\n", m.Name, reason)
-		return 1
-	}
-
-	if _, err := os.Stat(filepath.Join(unpacked, m.Entrypoint)); err != nil {
-		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", m.Entrypoint, m.Name, m.Version)
-		return 1
-	}
-
-	dst := state.PluginVersionDir(m.Name, m.Version)
+	version := strings.TrimPrefix(m.Version, "v")
+	dst := state.PluginVersionDir(m.Name, version)
 	if err := os.RemoveAll(dst); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -258,13 +251,18 @@ func placePlugin(hostVersion, protocol, unpacked string) int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	st.Plugins[m.Name] = state.Installed{Name: m.Name, ActiveVersion: m.Version}
+	st.Plugins[m.Name] = state.Installed{
+		Name:          m.Name,
+		ActiveVersion: version,
+		Entrypoint:    plat.Bin,
+		Requires:      m.Requires,
+	}
 	if err := st.Save(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
-	fmt.Printf("installed %s %s (command: dongle %s)\n", m.Name, m.Version, m.Name)
+	fmt.Printf("installed %s %s (command: dongle %s)\n", m.Name, version, m.Name)
 	return 0
 }
 
