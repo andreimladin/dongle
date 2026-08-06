@@ -2,10 +2,6 @@
 package plugincmd
 
 import (
-	"archive/tar"
-	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -130,7 +126,7 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	staging, unpacked, err := fetchAndUnpack(m, plat)
+	staging, dlDir, err := fetchArtifact(m, plat)
 	if staging != "" {
 		defer os.RemoveAll(staging)
 	}
@@ -139,7 +135,7 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	return placePlugin(m, plat, unpacked)
+	return placePlugin(m, plat, dlDir)
 }
 
 // stagingRoot returns a fresh temp dir under <dataDir>/.staging so that the
@@ -152,45 +148,40 @@ func stagingRoot() (string, error) {
 	return os.MkdirTemp(base, "install-")
 }
 
-// fetchAndUnpack downloads the artifact from the Azure feed, verifies its
-// checksum, and unpacks it into staging/unpacked, ready for placePlugin.
-// staging is always returned (even on error) so the caller can clean it up.
-func fetchAndUnpack(m *index.Manifest, plat *index.Platform) (staging, unpacked string, err error) {
+// fetchArtifact downloads the artifact from the Azure feed into
+// staging/download, ready for placePlugin. There is no archive to unpack:
+// the downloaded item is the plugin binary itself. staging is always
+// returned (even on error) so the caller can clean it up.
+func fetchArtifact(m *index.Manifest, plat *index.Platform) (staging, dlDir string, err error) {
 	staging, err = stagingRoot()
 	if err != nil {
 		return "", "", err
 	}
-	dl := filepath.Join(staging, "download")
-	unpacked = filepath.Join(staging, "unpacked")
+	dlDir = filepath.Join(staging, "download")
 
-	tarPath, err := downloadArtifact(m, plat, dl)
-	if err != nil {
+	if err := downloadArtifact(m, plat, dlDir); err != nil {
 		return staging, "", err
 	}
-	if err := verifySHA256(tarPath, plat.SHA256); err != nil {
-		return staging, "", err
-	}
-	if err := untar(tarPath, unpacked); err != nil {
-		return staging, "", err
-	}
-	return staging, unpacked, nil
+	return staging, dlDir, nil
 }
 
-// downloadArtifact shells out to the Azure CLI to pull the plugin's Universal
-// Package into destDir, then returns the path to plat.File within it.
-func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (string, error) {
+// downloadArtifact shells out to the Azure CLI to pull the platform's
+// Universal Package into destDir. The package name is plat.File: each
+// platform selector's file is published as its own Universal Package,
+// already matched to this machine's os/arch by PlatformFor().
+func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) error {
 	if _, err := exec.LookPath("az"); err != nil {
-		return "", fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+		return fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", err
+		return err
 	}
 	ver := strings.TrimPrefix(m.Version, "v") // upack versions are bare semver
 	args := []string{
 		"artifacts", "universal", "download",
 		"--organization", "https://dev.azure.com/" + m.Feed.Organization,
 		"--feed", m.Feed.Feed,
-		"--name", m.Feed.PackageName,
+		"--name", plat.File,
 		"--version", ver,
 		"--path", destDir,
 	}
@@ -200,26 +191,28 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (
 	cmd := exec.Command("az", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("az download %s@%s: %w", m.Feed.PackageName, ver, err)
+		return fmt.Errorf("az download %s@%s: %w", plat.File, ver, err)
 	}
-	tarPath := filepath.Join(destDir, plat.File)
-	if _, err := os.Stat(tarPath); err != nil {
-		return "", fmt.Errorf("expected %s in package %s@%s, not found", plat.File, m.Feed.PackageName, ver)
+	path := filepath.Join(destDir, plat.File)
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("expected %s in package %s@%s, not found", plat.File, plat.File, ver)
 	}
-	return tarPath, nil
+	return nil
 }
 
 // placePlugin is not a user entry point: it only receives an
-// already-resolved/unpacked dir produced by fetchAndUnpack, and the index
+// already-resolved download dir produced by fetchArtifact, and the index
 // resolver (installFromName) is its only caller. There is no plugin.json to
 // read — name, version, entrypoint, and requires all come from the manifest
-// and the platform selected for this download. It places the unpacked
-// payload atomically (same-filesystem rename, since unpacked lives under the
-// staging root) and only updates state once the plugin is fully on disk.
-func placePlugin(m *index.Manifest, plat *index.Platform, unpacked string) int {
-	entrypoint := filepath.Join(unpacked, plat.Bin)
+// and the platform selected for this download. The download has no archive:
+// the entrypoint is plat.File itself, downloaded directly into dlDir. It
+// places the download atomically (same-filesystem rename, since dlDir lives
+// under the staging root) and only updates state once the plugin is fully on
+// disk.
+func placePlugin(m *index.Manifest, plat *index.Platform, dlDir string) int {
+	entrypoint := filepath.Join(dlDir, plat.File)
 	if _, err := os.Stat(entrypoint); err != nil {
-		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", plat.Bin, m.Name, m.Version)
+		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", plat.File, m.Name, m.Version)
 		return 1
 	}
 	if err := os.Chmod(entrypoint, 0o755); err != nil {
@@ -237,10 +230,10 @@ func placePlugin(m *index.Manifest, plat *index.Platform, unpacked string) int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if err := os.Rename(unpacked, dst); err != nil {
+	if err := os.Rename(dlDir, dst); err != nil {
 		// cross-filesystem safety net: staging is normally under the data dir
 		// (same filesystem as dst), but fall back to a copy if it isn't.
-		if cerr := copyTree(unpacked, dst); cerr != nil {
+		if cerr := copyTree(dlDir, dst); cerr != nil {
 			fmt.Fprintln(os.Stderr, "error: place plugin:", cerr)
 			return 1
 		}
@@ -254,7 +247,7 @@ func placePlugin(m *index.Manifest, plat *index.Platform, unpacked string) int {
 	st.Plugins[m.Name] = state.Installed{
 		Name:          m.Name,
 		ActiveVersion: version,
-		Entrypoint:    plat.Bin,
+		Entrypoint:    plat.File,
 		Requires:      m.Requires,
 	}
 	if err := st.Save(); err != nil {
@@ -326,73 +319,4 @@ func copyTree(src, dst string) error {
 		}
 		return copyFile(path, target, info.Mode())
 	})
-}
-
-func verifySHA256(path, want string) error {
-	if want == "" {
-		return fmt.Errorf("no sha256 in manifest for %s", filepath.Base(path))
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
-	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if !strings.EqualFold(got, want) {
-		return fmt.Errorf("checksum mismatch: got %s, want %s", got, want)
-	}
-	return nil
-}
-
-// untar extracts a .tar.gz into dest, guarding against path traversal.
-func untar(tarGzPath, dest string) error {
-	f, err := os.Open(tarGzPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dest, hdr.Name)
-		// zip-slip guard: ensure target stays within dest.
-		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("unsafe path in archive: %s", hdr.Name)
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
-				return err
-			}
-			out.Close()
-		}
-	}
 }
