@@ -10,6 +10,7 @@ requires:
   protocol: "v1"
 feed:
   organization: acme
+  project: acme-platform
   feed: dongle-plugins
   packageType: upack          # Azure Artifacts Universal Package
   packageName: dongle-deploy  # one package per plugin, in the shared feed
