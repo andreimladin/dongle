@@ -18,7 +18,6 @@ import (
 
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/index"
-	"github.com/andreimladin/dongle/internal/manifest"
 	"github.com/andreimladin/dongle/internal/state"
 )
 
@@ -140,7 +139,7 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	return placePlugin(hostVersion, protocol, unpacked)
+	return placePlugin(entry, plat, unpacked)
 }
 
 // stagingRoot returns a fresh temp dir under <dataDir>/.staging so that the
@@ -212,30 +211,24 @@ func downloadArtifact(e *index.PluginIndexEntry, plat *index.Platform, destDir s
 
 // placePlugin is not a user entry point: it only receives an
 // already-resolved/unpacked dir produced by fetchAndUnpack, and the index
-// resolver (installFromName) is its only caller. It places the unpacked
+// resolver (installFromName) is its only caller. There is no plugin.json to
+// read — name, version, entrypoint, and requires all come from the index
+// entry and the platform selected for this download. It places the unpacked
 // payload atomically (same-filesystem rename, since unpacked lives under the
 // staging root) and only updates state once the plugin is fully on disk.
-func placePlugin(hostVersion, protocol, unpacked string) int {
-	m, err := manifest.Load(filepath.Join(unpacked, "plugin.json"))
-	if err != nil {
+func placePlugin(entry *index.PluginIndexEntry, plat *index.Platform, unpacked string) int {
+	entrypoint := filepath.Join(unpacked, plat.Bin)
+	if _, err := os.Stat(entrypoint); err != nil {
+		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", plat.Bin, entry.Name, entry.Version)
+		return 1
+	}
+	if err := os.Chmod(entrypoint, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
-	if ok, reason, err := compat.Check(hostVersion, protocol, m.Requires); err != nil {
-		fmt.Fprintln(os.Stderr, "error: bad constraint in manifest:", err)
-		return 1
-	} else if !ok {
-		fmt.Fprintf(os.Stderr, "error: %s %s — not installing\n", m.Name, reason)
-		return 1
-	}
-
-	if _, err := os.Stat(filepath.Join(unpacked, m.Entrypoint)); err != nil {
-		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", m.Entrypoint, m.Name, m.Version)
-		return 1
-	}
-
-	dst := state.PluginVersionDir(m.Name, m.Version)
+	version := strings.TrimPrefix(entry.Version, "v")
+	dst := state.PluginVersionDir(entry.Name, version)
 	if err := os.RemoveAll(dst); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -258,13 +251,18 @@ func placePlugin(hostVersion, protocol, unpacked string) int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	st.Plugins[m.Name] = state.Installed{Name: m.Name, ActiveVersion: m.Version}
+	st.Plugins[entry.Name] = state.Installed{
+		Name:          entry.Name,
+		ActiveVersion: version,
+		Entrypoint:    plat.Bin,
+		Requires:      entry.Requires,
+	}
 	if err := st.Save(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
-	fmt.Printf("installed %s %s (command: dongle %s)\n", m.Name, m.Version, m.Name)
+	fmt.Printf("installed %s %s (command: dongle %s)\n", entry.Name, version, entry.Name)
 	return 0
 }
 
