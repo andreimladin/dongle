@@ -4,10 +4,10 @@
 //	<dataDir>/state.json
 //	<dataDir>/index/            (the cloned index cache; owned by package index)
 //
-// There is no per-plugin manifest on disk: the index entry resolved at install
-// time is the only manifest, and its runtime-relevant facts (entrypoint,
-// requires) are recorded into state.json so dispatch never has to read
-// anything but this file.
+// There is no per-plugin manifest file on disk: the plugin's manifest is
+// resolved from the index at install time, and its runtime-relevant facts
+// (entrypoint, requires) are recorded into state.json so dispatch never has
+// to read anything but this file.
 //
 // Set DONGLE_DATA_DIR to override the root (used in tests so we don't touch the
 // real ~/.dongle).

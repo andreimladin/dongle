@@ -51,7 +51,9 @@ var ErrNotFound = errors.New("plugin not found in index")
 
 // --- index-side manifest types (YAML) ----------------------------------------
 
-type PluginIndexEntry struct {
+// Manifest is a plugin's manifest: the plugins/<name>.yaml file a plugin
+// creator authors and PRs into the index repo.
+type Manifest struct {
 	Name             string          `yaml:"name"`
 	Version          string          `yaml:"version"`
 	ShortDescription string          `yaml:"shortDescription"`
@@ -160,8 +162,8 @@ func run(name string, args ...string) error {
 
 // --- lookups ------------------------------------------------------------------
 
-// Manifest reads plugins/<name>.yaml from the local cache.
-func Manifest(name string) (*PluginIndexEntry, error) {
+// Load reads and parses the manifest plugins/<name>.yaml from the local cache.
+func Load(name string) (*Manifest, error) {
 	path := filepath.Join(cacheDir(), "plugins", name+".yaml")
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -170,42 +172,42 @@ func Manifest(name string) (*PluginIndexEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var e PluginIndexEntry
-	if err := yaml.Unmarshal(b, &e); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+	var m Manifest
+	if err := yaml.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("invalid manifest for %s: %w", name, err)
 	}
-	return &e, nil
+	return &m, nil
 }
 
-// List returns every plugin entry in the cache (for `dongle plugin search`).
-func List() ([]PluginIndexEntry, error) {
+// List returns every plugin manifest in the cache (for `dongle plugin search`).
+func List() ([]Manifest, error) {
 	dir := filepath.Join(cacheDir(), "plugins")
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	var out []PluginIndexEntry
+	var out []Manifest
 	for _, f := range files {
 		if f.IsDir() || filepath.Ext(f.Name()) != ".yaml" {
 			continue
 		}
-		if e, err := Manifest(stem(f.Name())); err == nil {
-			out = append(out, *e)
+		if m, err := Load(stem(f.Name())); err == nil {
+			out = append(out, *m)
 		}
 	}
 	return out, nil
 }
 
 // PlatformFor returns the artifact matching the running os/arch.
-func (e *PluginIndexEntry) PlatformFor() (*Platform, error) {
-	for i := range e.Platforms {
-		if e.Platforms[i].Selector.OS == runtime.GOOS &&
-			e.Platforms[i].Selector.Arch == runtime.GOARCH {
-			return &e.Platforms[i], nil
+func (m *Manifest) PlatformFor() (*Platform, error) {
+	for i := range m.Platforms {
+		if m.Platforms[i].Selector.OS == runtime.GOOS &&
+			m.Platforms[i].Selector.Arch == runtime.GOARCH {
+			return &m.Platforms[i], nil
 		}
 	}
 	return nil, fmt.Errorf("%s %s has no build for %s/%s",
-		e.Name, e.Version, runtime.GOOS, runtime.GOARCH)
+		m.Name, m.Version, runtime.GOOS, runtime.GOARCH)
 }
 
 func stem(fname string) string { return fname[:len(fname)-len(filepath.Ext(fname))] }

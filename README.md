@@ -72,14 +72,14 @@ The host execs `dongle-<name> <args...>` with:
 - **exit code** — propagated.
 
 An existing **cobra** CLI becomes a plugin by setting its root command's `Use` to
-the plugin name and adding an entry to the index (naming its per-platform
+the plugin name and adding a manifest to the index (naming its per-platform
 binary and `requires`); its whole subcommand tree keeps working because
 dispatch hands args straight to cobra. It needs nothing from dongle — the
 context arrives as plain env vars. See `examples/dongle-deploy`.
 
 ## Three version axes
 
-Bound by each plugin's index entry `requires`: the host's semver (`hostVersion`
+Bound by each plugin's manifest `requires`: the host's semver (`hostVersion`
 in `cmd/dongle/main.go`), each plugin's semver, and a slow-moving protocol
 version. Host and protocol are separate constants so they release
 independently.

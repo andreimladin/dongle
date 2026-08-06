@@ -1,8 +1,9 @@
-# Example entry for the dongle-index git repo. The filename (deploy.yaml) is the
-# plugin name: it registers `dongle deploy`. This is the ONLY manifest — there is
-# no plugin.json inside the tarball. At install time dongle records each
-# platform's `bin` (entrypoint) and `requires` into state.json, so dispatch never
-# reads anything but state.json at run time.
+# Example manifest for the dongle-index git repo. The filename (deploy.yaml) is
+# the plugin name: it registers `dongle deploy`. This is the ONLY manifest — a
+# plugin creator authors and PRs this file into the index; there is no
+# plugin.json inside the tarball. At install time dongle records each
+# platform's `bin` (entrypoint) and `requires` into state.json, so dispatch
+# never reads anything but state.json at run time.
 name: deploy
 version: v2.3.1
 shortDescription: Deploy services to the platform
