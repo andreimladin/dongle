@@ -64,6 +64,7 @@ type PluginIndexEntry struct {
 // in a shared feed).
 type Feed struct {
 	Organization string `yaml:"organization"`
+	Project      string `yaml:"project"` // set when the feed is project-scoped
 	Feed         string `yaml:"feed"`
 	PackageType  string `yaml:"packageType"` // e.g. "upack"
 	PackageName  string `yaml:"packageName"`

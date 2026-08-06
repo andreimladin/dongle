@@ -187,13 +187,18 @@ func downloadArtifact(e *index.PluginIndexEntry, plat *index.Platform, destDir s
 		return "", err
 	}
 	ver := strings.TrimPrefix(e.Version, "v") // upack versions are bare semver
-	cmd := exec.Command("az", "artifacts", "universal", "download",
-		"--organization", "https://dev.azure.com/"+e.Feed.Organization,
+	args := []string{
+		"artifacts", "universal", "download",
+		"--organization", "https://dev.azure.com/" + e.Feed.Organization,
 		"--feed", e.Feed.Feed,
 		"--name", e.Feed.PackageName,
 		"--version", ver,
 		"--path", destDir,
-	)
+	}
+	if e.Feed.Project != "" {
+		args = append(args, "--project", e.Feed.Project, "--scope", "project")
+	}
+	cmd := exec.Command("az", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("az download %s@%s: %w", e.Feed.PackageName, ver, err)

@@ -91,6 +91,11 @@ Host and protocol are separate constants so they release independently.
 3. PR `plugins/<name>.yaml` to the index repo (version + feed coords +
    checksums). See `examples/index/plugins/deploy.yaml`.
 
+If the Azure Artifacts feed is scoped to a project (rather than organization-wide),
+set `feed.project` in the index manifest — `downloadArtifact` passes `--project`
+and `--scope project` to `az artifacts universal download` when it's set.
+Org-scoped feeds omit `feed.project` entirely.
+
 Set the embedded index URL in `internal/index/index.go` (`IndexURL`).
 `DONGLE_INDEX_URL` overrides it for dev.
 
