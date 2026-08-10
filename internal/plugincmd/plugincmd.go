@@ -126,7 +126,7 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	staging, dlDir, err := fetchArtifact(m, plat)
+	staging, downloaded, err := fetchArtifact(m, plat)
 	if staging != "" {
 		defer os.RemoveAll(staging)
 	}
@@ -135,7 +135,7 @@ func installFromName(hostVersion, protocol, name string) int {
 		return 1
 	}
 
-	return placePlugin(m, plat, dlDir)
+	return placePlugin(m, downloaded)
 }
 
 // stagingRoot returns a fresh temp dir under <dataDir>/.staging so that the
@@ -152,36 +152,40 @@ func stagingRoot() (string, error) {
 // staging/download, ready for placePlugin. There is no archive to unpack:
 // the downloaded item is the plugin binary itself. staging is always
 // returned (even on error) so the caller can clean it up.
-func fetchArtifact(m *index.Manifest, plat *index.Platform) (staging, dlDir string, err error) {
+func fetchArtifact(m *index.Manifest, plat *index.Platform) (staging, downloaded string, err error) {
 	staging, err = stagingRoot()
 	if err != nil {
 		return "", "", err
 	}
-	dlDir = filepath.Join(staging, "download")
+	dlDir := filepath.Join(staging, "download")
 
-	if err := downloadArtifact(m, plat, dlDir); err != nil {
+	downloaded, err = downloadArtifact(m, plat, dlDir)
+	if err != nil {
 		return staging, "", err
 	}
-	return staging, dlDir, nil
+	return staging, downloaded, nil
 }
 
 // downloadArtifact shells out to the Azure CLI to pull the platform's
-// Universal Package into destDir. The package name is plat.File: each
-// platform selector's file is published as its own Universal Package,
-// already matched to this machine's os/arch by PlatformFor().
-func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) error {
+// Universal Package into destDir. plat.Package is the Universal Package
+// name (already matched to this machine's os/arch by PlatformFor()) — not a
+// filename. The package contains exactly one file, whose name is not
+// predictable (it need not equal plat.Package), so downloadArtifact reads
+// destDir afterward and returns the path to whichever single regular file
+// landed there.
+func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (string, error) {
 	if _, err := exec.LookPath("az"); err != nil {
-		return fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+		return "", fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	ver := strings.TrimPrefix(m.Version, "v") // upack versions are bare semver
 	args := []string{
 		"artifacts", "universal", "download",
 		"--organization", "https://dev.azure.com/" + m.Feed.Organization,
 		"--feed", m.Feed.Feed,
-		"--name", plat.File,
+		"--name", plat.Package,
 		"--version", ver,
 		"--path", destDir,
 	}
@@ -191,49 +195,59 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) e
 	cmd := exec.Command("az", args...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("az download %s@%s: %w", plat.File, ver, err)
+		return "", fmt.Errorf("az download %s@%s: %w", plat.Package, ver, err)
 	}
-	path := filepath.Join(destDir, plat.File)
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("expected %s in package %s@%s, not found", plat.File, plat.File, ver)
+
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	var files []string
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			files = append(files, e.Name())
+		}
+	}
+	if len(files) != 1 {
+		return "", fmt.Errorf("package %s@%s contains %d files, expected exactly 1", plat.Package, ver, len(files))
+	}
+	return filepath.Join(destDir, files[0]), nil
 }
 
 // placePlugin is not a user entry point: it only receives an
-// already-resolved download dir produced by fetchArtifact, and the index
+// already-resolved downloaded file produced by fetchArtifact, and the index
 // resolver (installFromName) is its only caller. There is no plugin.json to
-// read — name, version, entrypoint, and requires all come from the manifest
-// and the platform selected for this download. The download has no archive:
-// the entrypoint is plat.File itself, downloaded directly into dlDir. It
-// places the download atomically (same-filesystem rename, since dlDir lives
-// under the staging root) and only updates state once the plugin is fully on
-// disk.
-func placePlugin(m *index.Manifest, plat *index.Platform, dlDir string) int {
-	entrypoint := filepath.Join(dlDir, plat.File)
-	if _, err := os.Stat(entrypoint); err != nil {
-		fmt.Fprintf(os.Stderr, "error: entrypoint %q not found in package for %s %s\n", plat.File, m.Name, m.Version)
-		return 1
-	}
-	if err := os.Chmod(entrypoint, 0o755); err != nil {
+// read — name, version, and requires all come from the manifest. The
+// downloaded file's own name is not predictable (it need not match anything
+// in the manifest), so placePlugin canonicalizes it to a stable entrypoint
+// name — <host binary name>-<plugin name> — before placing it, so dispatch
+// always knows what to exec regardless of how the package itself named the
+// file. downloaded already lives under <dataDir>/.staging (from
+// fetchArtifact), so the final move into the plugins dir is a same-filesystem
+// rename and state is only updated once the plugin is fully on disk.
+func placePlugin(m *index.Manifest, downloaded string) int {
+	if err := os.Chmod(downloaded, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
 	version := strings.TrimPrefix(m.Version, "v")
-	dst := state.PluginVersionDir(m.Name, version)
-	if err := os.RemoveAll(dst); err != nil {
+	entrypoint := hostBinaryName() + "-" + m.Name
+	verDir := state.PluginVersionDir(m.Name, version)
+	dst := filepath.Join(verDir, entrypoint)
+
+	if err := os.RemoveAll(verDir); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(verDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if err := os.Rename(dlDir, dst); err != nil {
+	if err := os.Rename(downloaded, dst); err != nil {
 		// cross-filesystem safety net: staging is normally under the data dir
 		// (same filesystem as dst), but fall back to a copy if it isn't.
-		if cerr := copyTree(dlDir, dst); cerr != nil {
+		if cerr := copyFile(downloaded, dst, 0o755); cerr != nil {
 			fmt.Fprintln(os.Stderr, "error: place plugin:", cerr)
 			return 1
 		}
@@ -247,7 +261,7 @@ func placePlugin(m *index.Manifest, plat *index.Platform, dlDir string) int {
 	st.Plugins[m.Name] = state.Installed{
 		Name:          m.Name,
 		ActiveVersion: version,
-		Entrypoint:    plat.File,
+		Entrypoint:    entrypoint,
 		Requires:      m.Requires,
 	}
 	if err := st.Save(); err != nil {
@@ -257,6 +271,18 @@ func placePlugin(m *index.Manifest, plat *index.Platform, dlDir string) int {
 
 	fmt.Printf("installed %s %s (command: dongle %s)\n", m.Name, version, m.Name)
 	return 0
+}
+
+// hostBinaryName returns the currently running host binary's own basename,
+// so a renamed host binary (built as something other than "dongle") gets
+// plugin entrypoints named to match: <hostBinaryName>-<plugin>. Falls back
+// to "dongle" if the binary name can't be determined.
+func hostBinaryName() string {
+	name := filepath.Base(os.Args[0])
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return "dongle"
+	}
+	return name
 }
 
 func uninstall(name string) int {
@@ -299,24 +325,4 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return out.Chmod(mode)
-}
-
-// copyTree recursively copies src into dst, preserving file modes. It's the
-// EXDEV fallback for placePlugin when staging and the plugins dir aren't on
-// the same filesystem and os.Rename can't be used.
-func copyTree(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		return copyFile(path, target, info.Mode())
-	})
 }

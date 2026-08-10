@@ -42,9 +42,8 @@ Real and testable now:
 
 Stubbed (the seam is in place):
 
-- `internal/plugincmd.downloadArtifact` → implement the **Azure feed** pull
-  (`az artifacts universal download` first, REST later). `verifySHA256` and
-  `untar` around it are already the real implementations.
+- `internal/plugincmd.downloadArtifact` calls the real `az artifacts universal
+  download`; a REST-based implementation (no `az` dependency) is future work.
 
 Not built yet (future work): authentication (a credential store, `login`, and
 brokering credentials into plugins).
@@ -86,12 +85,19 @@ independently.
 
 ## Publishing a plugin (git index + shared Azure feed)
 
-1. Build per-`os/arch` tarballs (just the binary); record each `sha256`.
-2. Publish to the shared Azure Artifacts feed as a Universal Package (one package
-   per plugin): `az artifacts universal publish --feed dongle-plugins --name
-   dongle-deploy --version 2.3.1 --path ./dist`.
-3. PR `plugins/<name>.yaml` to the index repo (version + feed coords +
-   checksums). See `examples/index/plugins/deploy.yaml`.
+1. Build the plugin binary for each `os/arch` you support.
+2. Publish each platform's binary as its own Universal Package to the shared
+   Azure Artifacts feed: `az artifacts universal publish --feed dongle-plugins
+   --name dongle-deploy_2.3.1_linux_amd64 --version 2.3.1 --path ./dist/linux_amd64`.
+   The package name is a plugin-publisher convention — dongle doesn't parse
+   it — but a name that encodes plugin/version/os/arch keeps feed browsing
+   sane. Each package must contain exactly one file: the binary itself.
+3. PR `plugins/<name>.yaml` to the index repo (version + feed coords + each
+   platform's `selector` and the Universal Package `name` you published it
+   under as `package`). See `examples/index/plugins/deploy.yaml`. At install
+   time dongle downloads that package, takes the single file inside it, and
+   installs it under a canonical entrypoint (`dongle-<name>`) — the file's own
+   name inside the package doesn't matter.
 
 If the Azure Artifacts feed is scoped to a project (rather than organization-wide),
 set `feed.project` in the index manifest — `downloadArtifact` passes `--project`
