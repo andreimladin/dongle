@@ -74,9 +74,7 @@ type Feed struct {
 
 type Platform struct {
 	Selector Selector `yaml:"selector"`
-	File     string   `yaml:"file"`   // file within the package version
-	SHA256   string   `yaml:"sha256"` // verified after download
-	Bin      string   `yaml:"bin"`    // entrypoint filename inside the tarball
+	Package  string   `yaml:"package"` // Universal Package name to download for this os/arch (az --name)
 }
 
 type Selector struct {

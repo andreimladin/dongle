@@ -1,9 +1,11 @@
 # Example manifest for the dongle-index git repo. The filename (deploy.yaml) is
 # the plugin name: it registers `dongle deploy`. This is the ONLY manifest — a
 # plugin creator authors and PRs this file into the index; there is no
-# plugin.json inside the tarball. At install time dongle records each
-# platform's `bin` (entrypoint) and `requires` into state.json, so dispatch
-# never reads anything but state.json at run time.
+# plugin.json inside the tarball. Each platform's `package` is the Azure
+# Artifacts Universal Package name to download for that os/arch — dongle
+# downloads it and installs the single binary it contains under a canonical
+# entrypoint (dongle-deploy), recording that plus `requires` into state.json
+# so dispatch never reads anything but state.json at run time.
 name: deploy
 version: v2.3.1
 shortDescription: Deploy services to the platform
@@ -18,10 +20,6 @@ feed:
   packageName: dongle-deploy  # one package per plugin, in the shared feed
 platforms:
   - selector: { os: darwin, arch: arm64 }
-    file: dongle-deploy_2.3.1_darwin_arm64.tar.gz
-    sha256: "REPLACE_WITH_REAL_SHA256"
-    bin: dongle-deploy
+    package: dongle-deploy_2.3.1_darwin_arm64
   - selector: { os: linux, arch: amd64 }
-    file: dongle-deploy_2.3.1_linux_amd64.tar.gz
-    sha256: "REPLACE_WITH_REAL_SHA256"
-    bin: dongle-deploy
+    package: dongle-deploy_2.3.1_linux_amd64
