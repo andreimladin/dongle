@@ -7,7 +7,7 @@
 set -eu
 cd "$(dirname "$0")"
 
-go build -o dist/dongle ./cmd/dongle
+go build -o dist/dongle ./cmd
 
 export DONGLE_DATA_DIR="$PWD/dist/home"
 rm -rf "$DONGLE_DATA_DIR"

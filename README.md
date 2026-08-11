@@ -51,7 +51,8 @@ brokering credentials into plugins).
 ## Layout
 
 ```
-cmd/dongle/            host entry; builtin switch + plugin dispatch
+cmd/                    host entry (cobra): main.go, root.go (root command + plugin
+                        dispatch fall-through), plugin.go, index.go
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
@@ -79,7 +80,7 @@ context arrives as plain env vars. See `examples/dongle-deploy`.
 ## Three version axes
 
 Bound by each plugin's manifest `requires`: the host's semver (`hostVersion`
-in `cmd/dongle/main.go`), each plugin's semver, and a slow-moving protocol
+in `cmd/root.go`), each plugin's semver, and a slow-moving protocol
 version. Host and protocol are separate constants so they release
 independently.
 
