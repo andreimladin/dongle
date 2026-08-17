@@ -2,29 +2,47 @@
 # Builds "batteries-included" per-platform release binaries: the host plus
 # the plugins listed in defaults.lock, baked in via go:embed behind the
 # "embed" build tag (see cmd/embed.go). NOT run in CI — this is a release
-# maintainer's manual/local step, since it needs `az` credentials for the
-# shared Azure Artifacts feed.
+# maintainer's manual/local step.
+#
+# No feed coordinates are hardcoded here: this script clones the plugin
+# index fresh on every run and reads each plugin's Azure Artifacts feed
+# (organization/feed/project) and per-platform package name straight out of
+# its index manifest (plugins/<name>.yaml), the same file `dongle plugin
+# install` resolves against. It then needs `az` credentials for that feed.
+#
+# Requires: yq, az (logged in to the feed), git, go.
 #
 # For a plain, plugin-less build use scripts/build.sh (or `go build ./cmd`
 # directly).
 set -eu
 cd "$(dirname "$0")/.."
 
-# --- Azure Artifacts feed config -------------------------------------------
-# TODO: fill these in for your organization's feed before running this
-# script. See README's "Publishing a plugin" section for the naming
-# convention these must match.
-AZ_ORG="TODO-org"     # e.g. "my-company"
-AZ_FEED="TODO-feed"   # e.g. "dongle-plugins"
-AZ_PROJECT=""         # TODO: set only if the feed is project-scoped
-# ----------------------------------------------------------------------------
+# Fallback index URL/branch — the same defaults the CLI itself uses
+# (internal/index.go's IndexURL/IndexBranch). DONGLE_INDEX_URL and
+# DONGLE_INDEX_BRANCH override them here exactly like they do for the CLI,
+# so this script and `dongle index refresh` always agree on which index
+# they're pointed at.
+DEFAULT_INDEX_URL="https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO]"
+INDEX_URL="${DONGLE_INDEX_URL:-$DEFAULT_INDEX_URL}"
+INDEX_BRANCH="${DONGLE_INDEX_BRANCH:-main}"
 
 LOCK_FILE="defaults.lock"
 EMBED_DIR="cmd/embedded"
 TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64)
 
-if ! command -v az >/dev/null 2>&1; then
-	echo "error: the Azure CLI (az) is required to download plugin artifacts" >&2
+for bin in yq az git go; do
+	if ! command -v "$bin" >/dev/null 2>&1; then
+		echo "error: $bin is required (see script header)" >&2
+		exit 1
+	fi
+done
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+echo "cloning index $INDEX_URL (branch $INDEX_BRANCH)..."
+if ! git clone --depth 1 --branch "$INDEX_BRANCH" "$INDEX_URL" "$TMP/index" >&2; then
+	echo "error: could not clone index $INDEX_URL" >&2
 	exit 1
 fi
 
@@ -54,40 +72,63 @@ for target in "${TARGETS[@]}"; do
 	while read -r name version; do
 		[ -n "$name" ] || continue
 
-		file="dongle-${name}"
-		[ "$GOOS" = "windows" ] && file="${file}.exe"
-		package="dongle-${name}_${version}_${GOOS}_${GOARCH}"
+		mf="$TMP/index/plugins/${name}.yaml"
+		if [ ! -f "$mf" ]; then
+			echo "error: no index manifest for plugin '$name' (expected $mf)" >&2
+			exit 1
+		fi
 
-		echo "  downloading ${package}@${version}..."
+		org=$(yq -r '.feed.organization // ""' "$mf")
+		feed=$(yq -r '.feed.feed // ""' "$mf")
+		project=$(yq -r '.feed.project // ""' "$mf")
+		pkg=$(yq -r ".platforms[] | select(.selector.os == \"$GOOS\" and .selector.arch == \"$GOARCH\") | .package" "$mf")
+
+		if [ -z "$org" ] || [ -z "$feed" ]; then
+			echo "error: $mf is missing feed.organization or feed.feed" >&2
+			exit 1
+		fi
+		if [ -z "$pkg" ]; then
+			echo "error: $mf has no platforms[] entry for $GOOS/$GOARCH" >&2
+			exit 1
+		fi
+
+		ver="${version#v}" # upack versions are bare semver
+		echo "  [$name] downloading $pkg@$ver from feed '$feed' (org $org)..."
+
 		dl_dir="$EMBED_DIR/.download"
 		rm -rf "$dl_dir"
 		mkdir -p "$dl_dir"
 
 		az_args=(artifacts universal download
-			--organization "https://dev.azure.com/${AZ_ORG}"
-			--feed "$AZ_FEED"
-			--name "$package"
-			--version "$version"
+			--organization "https://dev.azure.com/${org}"
+			--feed "$feed"
+			--name "$pkg"
+			--version "$ver"
 			--path "$dl_dir")
-		if [ -n "$AZ_PROJECT" ]; then
-			az_args+=(--project "$AZ_PROJECT" --scope project)
+		if [ -n "$project" ]; then
+			az_args+=(--project "$project" --scope project)
 		fi
 		if ! az "${az_args[@]}"; then
-			echo "error: az download failed for ${package}@${version} (${GOOS}/${GOARCH})" >&2
+			echo "error: az download failed for $pkg@$ver ($GOOS/$GOARCH)" >&2
 			exit 1
 		fi
 
 		downloaded=$(find "$dl_dir" -maxdepth 1 -type f)
 		if [ -z "$downloaded" ] || [ "$(printf '%s\n' "$downloaded" | wc -l)" -ne 1 ]; then
-			echo "error: package ${package}@${version} did not contain exactly one file" >&2
+			echo "error: package $pkg@$ver did not contain exactly one file" >&2
 			exit 1
 		fi
+
+		# Canonicalize to the same entrypoint naming `dongle plugin install`
+		# uses: <host binary name>-<plugin name>.
+		file="dongle-${name}"
+		[ "$GOOS" = "windows" ] && file="${file}.exe"
 		mv "$downloaded" "$EMBED_DIR/$file"
 		rm -rf "$dl_dir"
 		chmod 0755 "$EMBED_DIR/$file"
 
-		entrypoint="$file"
-		manifest_entries+=("{\"name\":\"${name}\",\"version\":\"${version}\",\"file\":\"${file}\",\"entrypoint\":\"${entrypoint}\"}")
+		manifest_entries+=("{\"name\":\"${name}\",\"version\":\"${ver}\",\"file\":\"${file}\",\"entrypoint\":\"${file}\"}")
+		echo "  [$name] staged as $file"
 	done < <(read_defaults)
 
 	{

@@ -36,8 +36,8 @@ sh demo.sh          # local-dir install lifecycle, end to end
 `go build ./cmd` and `scripts/build.sh` are always available and require
 nothing beyond the Go toolchain — embedding is entirely opt-in and behind a
 build tag, so plain builds have no new behavior. `scripts/build-release.sh`
-is a release maintainer's manual step (it needs `az` credentials for the
-shared Azure Artifacts feed) and is **not** run in CI.
+is a release maintainer's manual step and is **not** run in CI: it needs
+`yq`, `az` (logged in to the feed), and `git`, on top of the Go toolchain.
 
 ### Embedded default plugins (`embed` build tag)
 
@@ -50,10 +50,16 @@ tacho   2.4.0
 bell    1.1.0
 ```
 
-`scripts/build-release.sh` reads it, downloads each listed plugin's binary
-for the target platform from the Azure feed into `cmd/embedded/` (git-ignored
-except for the tracked `cmd/embedded/.gitkeep` placeholder), writes
-`cmd/embedded/manifest.json`, and builds with `-tags embed` so
+`scripts/build-release.sh` clones the plugin index fresh into a temp dir on
+every run (`DONGLE_INDEX_URL`/`DONGLE_INDEX_BRANCH` override it, same as the
+CLI) and, for each `defaults.lock` entry, reads that plugin's Azure
+Artifacts feed coordinates and per-platform package name straight out of its
+index manifest (`plugins/<name>.yaml` — the same file `dongle plugin
+install` resolves against). Nothing about the feed — organization, feed
+name, project, or package naming — is hardcoded in the script itself. It
+downloads each plugin's binary for the target platform into `cmd/embedded/`
+(git-ignored except for the tracked `cmd/embedded/.gitkeep` placeholder),
+writes `cmd/embedded/manifest.json`, and builds with `-tags embed` so
 `cmd/embed.go`'s `//go:embed all:embedded` picks the staged files up into the
 binary. On first run, `installEmbeddedDefaults()` unpacks them into the
 normal plugin store (`plugins/<name>/<version>/<entrypoint>`) and sets a
