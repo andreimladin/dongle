@@ -37,7 +37,9 @@ sh demo.sh          # local-dir install lifecycle, end to end
 nothing beyond the Go toolchain — embedding is entirely opt-in and behind a
 build tag, so plain builds have no new behavior. `scripts/build-release.sh`
 is a release maintainer's manual step and is **not** run in CI: it needs
-`yq`, `az` (logged in to the feed), and `git`, on top of the Go toolchain.
+`az` (logged in to the feed) and `git`, on top of the Go toolchain — nothing
+else, since feed-coordinate resolution goes through `tools/resolve` (see
+below) rather than a separate YAML tool.
 
 ### Embedded default plugins (`embed` build tag)
 
@@ -52,19 +54,25 @@ bell    1.1.0
 
 `scripts/build-release.sh` clones the plugin index fresh into a temp dir on
 every run (`DONGLE_INDEX_URL`/`DONGLE_INDEX_BRANCH` override it, same as the
-CLI) and, for each `defaults.lock` entry, reads that plugin's Azure
-Artifacts feed coordinates and per-platform package name straight out of its
-index manifest (`plugins/<name>.yaml` — the same file `dongle plugin
-install` resolves against). Nothing about the feed — organization, feed
-name, project, or package naming — is hardcoded in the script itself. It
-downloads each plugin's binary for the target platform into `cmd/embedded/`
-(git-ignored except for the tracked `cmd/embedded/.gitkeep` placeholder),
-writes `cmd/embedded/manifest.json`, and builds with `-tags embed` so
-`cmd/embed.go`'s `//go:embed all:embedded` picks the staged files up into the
-binary. On first run, `installEmbeddedDefaults()` unpacks them into the
-normal plugin store (`plugins/<name>/<version>/<entrypoint>`) and sets a
-`defaultsBootstrapped` flag in `state.json` so it never runs again — from
-then on those plugins behave exactly like ones installed via
+CLI), then builds `tools/resolve` — a small build-time-only Go helper in
+this repo, not a `dongle` subcommand — into that temp dir. For each
+`defaults.lock` entry it shells out to it: `resolve <name> --version <v>
+--os <os> --arch <arch> --index <indexdir>` reads `plugins/<name>.yaml`
+directly from the freshly cloned checkout (no cache, no network) and prints
+the plugin's Azure Artifacts feed coordinates and per-platform package name
+as `eval`-able `KEY="value"` lines. Nothing about the feed — organization,
+feed name, project, or package naming — is hardcoded in the script itself,
+and the manifest is parsed by the exact same `internal/index` code (plus one
+purely-additive `LoadFile` helper for reading from an arbitrary path) that
+the CLI uses for `dongle plugin install` — not reimplemented. The script
+then downloads each plugin's binary for the target platform into
+`cmd/embedded/` (git-ignored except for the tracked `cmd/embedded/.gitkeep`
+placeholder), writes `cmd/embedded/manifest.json`, and builds with
+`-tags embed` so `cmd/embed.go`'s `//go:embed all:embedded` picks the staged
+files up into the binary. On first run, `installEmbeddedDefaults()` unpacks
+them into the normal plugin store (`plugins/<name>/<version>/<entrypoint>`)
+and sets a `defaultsBootstrapped` flag in `state.json` so it never runs
+again — from then on those plugins behave exactly like ones installed via
 `dongle plugin install`.
 
 A binary built without `-tags embed` (i.e. every binary except the ones
@@ -106,6 +114,9 @@ internal/state/        installed-plugin registry (entrypoint + requires) + on-di
 internal/dispatch/     resolve -> compat -> exec
 internal/plugincmd/    plugin list/search/install/uninstall (+ index resolver)
 internal/index/        embedded git catalog: clone/TTL-pull cache, lookups
+tools/resolve/          build-time-only helper for scripts/build-release.sh
+                        (not a dongle subcommand) — see "Embedded default
+                        plugins" above
 examples/dongle-deploy/  sample cobra plugin (its own module)
 examples/index/          sample index-repo manifest (Azure feed coordinates)
 ```
