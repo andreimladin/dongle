@@ -25,6 +25,47 @@ sh demo.sh          # local-dir install lifecycle, end to end
 
 `demo.sh` isolates state under `./dist` via `DONGLE_DATA_DIR`.
 
+### Three ways to build the host
+
+| command | binary | plugins |
+|---|---|---|
+| `go build ./cmd` | dev binary, `hostVersion` defaults to `"dev"` | none — install them the normal way |
+| `scripts/build.sh` | `dist/dongle`, `hostVersion` stamped from `git describe` | none |
+| `scripts/build-release.sh` | `dist/dongle-<os>-<arch>` per platform | embedded defaults from `defaults.lock` |
+
+`go build ./cmd` and `scripts/build.sh` are always available and require
+nothing beyond the Go toolchain — embedding is entirely opt-in and behind a
+build tag, so plain builds have no new behavior. `scripts/build-release.sh`
+is a release maintainer's manual step (it needs `az` credentials for the
+shared Azure Artifacts feed) and is **not** run in CI.
+
+### Embedded default plugins (`embed` build tag)
+
+`defaults.lock` (repo root) is the reviewable, diffable list of which
+plugins ship baked into a release binary:
+
+```
+# name  version
+tacho   2.4.0
+bell    1.1.0
+```
+
+`scripts/build-release.sh` reads it, downloads each listed plugin's binary
+for the target platform from the Azure feed into `cmd/embedded/` (git-ignored
+except for the tracked `cmd/embedded/.gitkeep` placeholder), writes
+`cmd/embedded/manifest.json`, and builds with `-tags embed` so
+`cmd/embed.go`'s `//go:embed all:embedded` picks the staged files up into the
+binary. On first run, `installEmbeddedDefaults()` unpacks them into the
+normal plugin store (`plugins/<name>/<version>/<entrypoint>`) and sets a
+`defaultsBootstrapped` flag in `state.json` so it never runs again — from
+then on those plugins behave exactly like ones installed via
+`dongle plugin install`.
+
+A binary built without `-tags embed` (i.e. every binary except the ones
+`scripts/build-release.sh` produces) links `cmd/embed_noop.go` instead, whose
+`installEmbeddedDefaults()` is a no-op — no embed dependency, no behavior
+change, nothing staged.
+
 ## What works vs. what's stubbed
 
 Real and testable now:
@@ -52,7 +93,8 @@ brokering credentials into plugins).
 
 ```
 cmd/                    host entry (cobra): main.go, root.go (root command + plugin
-                        dispatch fall-through), plugin.go, index.go
+                        dispatch fall-through), plugin.go, index.go, embed.go /
+                        embed_noop.go (embedded default plugins, see below)
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec

@@ -10,10 +10,12 @@ import (
 	"github.com/andreimladin/dongle/internal/dispatch"
 )
 
-const (
-	hostVersion = "0.1.0" // the host's own semver
-	protocol    = "v1"    // the host<->plugin contract version
-)
+// hostVersion is the host's own semver. It defaults to "dev" for a plain
+// `go build`; scripts/build.sh and scripts/build-release.sh stamp the real
+// version in via -ldflags "-X main.hostVersion=...".
+var hostVersion = "dev"
+
+const protocol = "v1" // the host<->plugin contract version
 
 // exitError carries a specific process exit code through cobra's error
 // return path. The command that produced it has already printed its own
@@ -89,6 +91,11 @@ func init() {
 
 // Execute runs the root command and returns the process exit code.
 func Execute() int {
+	// Batteries-included binaries (built with -tags embed) self-register
+	// their embedded defaults here, before any dispatch happens. Plain
+	// builds get the no-op in embed_noop.go.
+	installEmbeddedDefaults()
+
 	if err := rootCmd.Execute(); err != nil {
 		var ee *exitError
 		if errors.As(err, &ee) {
