@@ -5,12 +5,14 @@
 # maintainer's manual/local step.
 #
 # No feed coordinates are hardcoded here: this script clones the plugin
-# index fresh on every run and reads each plugin's Azure Artifacts feed
-# (organization/feed/project) and per-platform package name straight out of
-# its index manifest (plugins/<name>.yaml), the same file `dongle plugin
-# install` resolves against. It then needs `az` credentials for that feed.
+# index fresh into a temp dir on every run and shells out to `dongle plugin
+# resolve` (a plain, no-tags build of this same repo) to read each plugin's
+# Azure Artifacts feed (organization/feed/project) and per-platform package
+# name straight out of its index manifest (plugins/<name>.yaml) — the same
+# file `dongle plugin install` resolves against, parsed by the same code.
+# It then needs `az` credentials for that feed.
 #
-# Requires: yq, az (logged in to the feed), git, go.
+# Requires: az (logged in to the feed), git, go.
 #
 # For a plain, plugin-less build use scripts/build.sh (or `go build ./cmd`
 # directly).
@@ -30,7 +32,7 @@ LOCK_FILE="defaults.lock"
 EMBED_DIR="cmd/embedded"
 TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64)
 
-for bin in yq az git go; do
+for bin in az git go; do
 	if ! command -v "$bin" >/dev/null 2>&1; then
 		echo "error: $bin is required (see script header)" >&2
 		exit 1
@@ -46,7 +48,16 @@ if ! git clone --depth 1 --branch "$INDEX_BRANCH" "$INDEX_URL" "$TMP/index" >&2;
 	exit 1
 fi
 
-VERSION=$(git describe --tags --always --dirty)
+echo "building resolver..."
+if ! go build -o "$TMP/dongle-host" ./cmd; then
+	echo "error: could not build the resolver (go build ./cmd)" >&2
+	exit 1
+fi
+
+# Named HOST_VERSION (not VERSION) because `eval`-ing the resolver's env
+# output below sets a VERSION of its own (the plugin's version, per
+# invocation) — this is the host's own version, computed once up front.
+HOST_VERSION=$(git describe --tags --always --dirty)
 
 # clean_embed wipes any staged plugin payload but keeps the tracked
 # .gitkeep, so the dir stays non-empty for go:embed even between
@@ -72,50 +83,35 @@ for target in "${TARGETS[@]}"; do
 	while read -r name version; do
 		[ -n "$name" ] || continue
 
-		mf="$TMP/index/plugins/${name}.yaml"
-		if [ ! -f "$mf" ]; then
-			echo "error: no index manifest for plugin '$name' (expected $mf)" >&2
-			exit 1
-		fi
+		echo "  [$name] resolving feed coordinates for $GOOS/$GOARCH..."
+		resolved=$("$TMP/dongle-host" plugin resolve "$name" \
+			--version "$version" --os "$GOOS" --arch "$GOARCH" \
+			--index "$TMP/index" --format env)
+		eval "$resolved"
 
-		org=$(yq -r '.feed.organization // ""' "$mf")
-		feed=$(yq -r '.feed.feed // ""' "$mf")
-		project=$(yq -r '.feed.project // ""' "$mf")
-		pkg=$(yq -r ".platforms[] | select(.selector.os == \"$GOOS\" and .selector.arch == \"$GOARCH\") | .package" "$mf")
-
-		if [ -z "$org" ] || [ -z "$feed" ]; then
-			echo "error: $mf is missing feed.organization or feed.feed" >&2
-			exit 1
-		fi
-		if [ -z "$pkg" ]; then
-			echo "error: $mf has no platforms[] entry for $GOOS/$GOARCH" >&2
-			exit 1
-		fi
-
-		ver="${version#v}" # upack versions are bare semver
-		echo "  [$name] downloading $pkg@$ver from feed '$feed' (org $org)..."
+		echo "  [$name] downloading $PACKAGE@$VERSION from feed '$FEED' (org $ORG)..."
 
 		dl_dir="$EMBED_DIR/.download"
 		rm -rf "$dl_dir"
 		mkdir -p "$dl_dir"
 
 		az_args=(artifacts universal download
-			--organization "https://dev.azure.com/${org}"
-			--feed "$feed"
-			--name "$pkg"
-			--version "$ver"
+			--organization "https://dev.azure.com/${ORG}"
+			--feed "$FEED"
+			--name "$PACKAGE"
+			--version "$VERSION"
 			--path "$dl_dir")
-		if [ -n "$project" ]; then
-			az_args+=(--project "$project" --scope project)
+		if [ -n "$PROJECT" ]; then
+			az_args+=(--project "$PROJECT" --scope project)
 		fi
 		if ! az "${az_args[@]}"; then
-			echo "error: az download failed for $pkg@$ver ($GOOS/$GOARCH)" >&2
+			echo "error: az download failed for $PACKAGE@$VERSION ($GOOS/$GOARCH)" >&2
 			exit 1
 		fi
 
 		downloaded=$(find "$dl_dir" -maxdepth 1 -type f)
 		if [ -z "$downloaded" ] || [ "$(printf '%s\n' "$downloaded" | wc -l)" -ne 1 ]; then
-			echo "error: package $pkg@$ver did not contain exactly one file" >&2
+			echo "error: package $PACKAGE@$VERSION did not contain exactly one file" >&2
 			exit 1
 		fi
 
@@ -127,7 +123,7 @@ for target in "${TARGETS[@]}"; do
 		rm -rf "$dl_dir"
 		chmod 0755 "$EMBED_DIR/$file"
 
-		manifest_entries+=("{\"name\":\"${name}\",\"version\":\"${ver}\",\"file\":\"${file}\",\"entrypoint\":\"${file}\"}")
+		manifest_entries+=("{\"name\":\"${name}\",\"version\":\"${VERSION}\",\"file\":\"${file}\",\"entrypoint\":\"${file}\"}")
 		echo "  [$name] staged as $file"
 	done < <(read_defaults)
 
@@ -147,11 +143,11 @@ for target in "${TARGETS[@]}"; do
 
 	echo "  building ${out}..."
 	GOOS="$GOOS" GOARCH="$GOARCH" go build -tags embed \
-		-ldflags "-s -w -X main.hostVersion=$VERSION" \
+		-ldflags "-s -w -X main.hostVersion=$HOST_VERSION" \
 		-o "$out" ./cmd
 
 	clean_embed
 	echo "  done: ${out}"
 done
 
-echo "release build complete: $VERSION"
+echo "release build complete: $HOST_VERSION"

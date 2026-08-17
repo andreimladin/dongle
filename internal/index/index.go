@@ -162,7 +162,16 @@ func run(name string, args ...string) error {
 
 // Load reads and parses the manifest plugins/<name>.yaml from the local cache.
 func Load(name string) (*Manifest, error) {
-	path := filepath.Join(cacheDir(), "plugins", name+".yaml")
+	return LoadFromDir(cacheDir(), name)
+}
+
+// LoadFromDir reads and parses plugins/<name>.yaml from an arbitrary index
+// checkout — not necessarily the managed cache — without touching the
+// network or the cache's TTL bookkeeping. Used by `dongle plugin resolve
+// --index` (and scripts/build-release.sh's freshly-cloned checkout) to read
+// a specific index directory directly.
+func LoadFromDir(indexDir, name string) (*Manifest, error) {
+	path := filepath.Join(indexDir, "plugins", name+".yaml")
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, ErrNotFound
@@ -198,14 +207,20 @@ func List() ([]Manifest, error) {
 
 // PlatformFor returns the artifact matching the running os/arch.
 func (m *Manifest) PlatformFor() (*Platform, error) {
+	return m.PlatformForOSArch(runtime.GOOS, runtime.GOARCH)
+}
+
+// PlatformForOSArch returns the artifact matching an arbitrary os/arch —
+// unlike PlatformFor, it isn't tied to the host's own runtime.GOOS/GOARCH,
+// so cross-platform resolution (e.g. `dongle plugin resolve --os --arch`)
+// can look up a build for a platform other than the one it's running on.
+func (m *Manifest) PlatformForOSArch(goos, goarch string) (*Platform, error) {
 	for i := range m.Platforms {
-		if m.Platforms[i].Selector.OS == runtime.GOOS &&
-			m.Platforms[i].Selector.Arch == runtime.GOARCH {
+		if m.Platforms[i].Selector.OS == goos && m.Platforms[i].Selector.Arch == goarch {
 			return &m.Platforms[i], nil
 		}
 	}
-	return nil, fmt.Errorf("%s %s has no build for %s/%s",
-		m.Name, m.Version, runtime.GOOS, runtime.GOARCH)
+	return nil, fmt.Errorf("%s %s has no build for %s/%s", m.Name, m.Version, goos, goarch)
 }
 
 func stem(fname string) string { return fname[:len(fname)-len(filepath.Ext(fname))] }
