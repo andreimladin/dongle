@@ -25,18 +25,20 @@ sh demo.sh          # local-dir install lifecycle, end to end
 
 `demo.sh` isolates state under `./dist` via `DONGLE_DATA_DIR`.
 
-### Three ways to build the host
+### Four ways to build the host
 
 | command | binary | plugins |
 |---|---|---|
 | `go build ./cmd` | dev binary, `hostVersion` defaults to `"dev"` | none — install them the normal way |
 | `scripts/build.sh` | `dist/dongle`, `hostVersion` stamped from `git describe` | none |
 | `scripts/build-release.sh` | `dist/dongle-<os>-<arch>` per platform | embedded defaults from `defaults.lock` |
+| `scripts/build-release-local.sh` | `dist/1es`, local machine only | embedded defaults from `defaults.lock` |
 
 `go build ./cmd` and `scripts/build.sh` are always available and require
 nothing beyond the Go toolchain — embedding is entirely opt-in and behind a
 build tag, so plain builds have no new behavior. `scripts/build-release.sh`
-is a release maintainer's manual step and is **not** run in CI: it needs
+and `scripts/build-release-local.sh` are a release maintainer's manual step
+and are **not** run in CI: they need
 `az` (logged in to the feed) and `git`, on top of the Go toolchain — nothing
 else, since feed-coordinate resolution goes through `tools/resolve` (see
 below) rather than a separate YAML tool.
@@ -75,10 +77,17 @@ and sets a `defaultsBootstrapped` flag in `state.json` so it never runs
 again — from then on those plugins behave exactly like ones installed via
 `dongle plugin install`.
 
+`scripts/build-release-local.sh` is the same pipeline restricted to one
+platform: it detects the local machine's actual OS/arch via `go env
+GOHOSTOS`/`GOHOSTARCH` (not `GOOS`/`GOARCH`, which would instead follow any
+cross-compilation env vars already set) and produces a single binary,
+`dist/1es`, instead of looping over every target. Handy for local dev/testing
+without waiting on all five platforms.
+
 A binary built without `-tags embed` (i.e. every binary except the ones
-`scripts/build-release.sh` produces) links `cmd/embed_noop.go` instead, whose
-`installEmbeddedDefaults()` is a no-op — no embed dependency, no behavior
-change, nothing staged.
+`scripts/build-release.sh`/`scripts/build-release-local.sh` produce) links
+`cmd/embed_noop.go` instead, whose `installEmbeddedDefaults()` is a no-op —
+no embed dependency, no behavior change, nothing staged.
 
 ## What works vs. what's stubbed
 
