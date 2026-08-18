@@ -177,6 +177,26 @@ func Load(name string) (*Manifest, error) {
 	return &m, nil
 }
 
+// LoadFile reads and parses a manifest from an explicit file path, bypassing
+// the cache (cacheDir/EnsureFresh/Refresh) entirely. Purely additive next to
+// Load: used by build-time tools (tools/resolve) that need to read
+// plugins/<name>.yaml out of an arbitrary index checkout — e.g. one just
+// cloned fresh into a temp dir — without touching the managed cache.
+func LoadFile(path string) (*Manifest, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var m Manifest
+	if err := yaml.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("invalid manifest at %s: %w", path, err)
+	}
+	return &m, nil
+}
+
 // List returns every plugin manifest in the cache (for `dongle plugin search`).
 func List() ([]Manifest, error) {
 	dir := filepath.Join(cacheDir(), "plugins")

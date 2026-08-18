@@ -4,6 +4,11 @@
 /dongle-deploy
 out/
 
+# Staged embedded-defaults payload (populated by scripts/build-release.sh,
+# compiled in only under -tags embed; see cmd/embed.go).
+/cmd/embedded/*
+!/cmd/embedded/.gitkeep
+
 # Go
 *.exe
 *.test
