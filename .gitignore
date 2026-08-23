@@ -5,9 +5,9 @@
 out/
 
 # Staged embedded-defaults payload (populated by scripts/build-release.sh,
-# compiled in only under -tags embed; see cmd/embed.go).
-/cmd/embedded/*
-!/cmd/embedded/.gitkeep
+# compiled in only under -tags embed; see internal/bootstrap/bootstrap.go).
+/internal/bootstrap/embedded/*
+!/internal/bootstrap/embedded/.gitkeep
 
 # Go
 *.exe

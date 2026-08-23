@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/dispatch"
 )
 
@@ -93,8 +94,8 @@ func init() {
 func Execute() int {
 	// Batteries-included binaries (built with -tags embed) self-register
 	// their embedded defaults here, before any dispatch happens. Plain
-	// builds get the no-op in embed_noop.go.
-	installEmbeddedDefaults()
+	// builds get the no-op in internal/bootstrap/noop.go.
+	bootstrap.InstallDefaults()
 
 	if err := rootCmd.Execute(); err != nil {
 		var ee *exitError

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds a single "batteries-included" binary for the local machine only:
 # the host plus the plugins listed in defaults.lock, baked in via go:embed
-# behind the "embed" build tag (see cmd/embed.go) — same as
+# behind the "embed" build tag (see internal/bootstrap/bootstrap.go) — same as
 # scripts/build-release.sh, but for one platform (the one this script is
 # running on, detected via `go env GOOS`/`GOARCH`) and named dist/1es
 # instead of dist/dongle-<os>-<arch>, for local dev/testing convenience.
@@ -33,7 +33,7 @@ INDEX_URL="${DONGLE_INDEX_URL:-$DEFAULT_INDEX_URL}"
 INDEX_BRANCH="${DONGLE_INDEX_BRANCH:-main}"
 
 LOCK_FILE="defaults.lock"
-EMBED_DIR="cmd/embedded"
+EMBED_DIR="internal/bootstrap/embedded"
 OUT_NAME="1es"
 
 for bin in az git go; do
