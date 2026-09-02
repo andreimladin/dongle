@@ -31,7 +31,7 @@ type Installed struct {
 type State struct {
 	Plugins map[string]Installed `json:"plugins"`
 	// DefaultsBootstrapped is set once a batteries-included binary (built
-	// with -tags embed; see cmd/embed.go) has unpacked its embedded
+	// with -tags embed; see internal/bootstrap/bootstrap.go) has unpacked its embedded
 	// defaults into Plugins, so that only ever happens on first run.
 	DefaultsBootstrapped bool `json:"defaultsBootstrapped,omitempty"`
 }

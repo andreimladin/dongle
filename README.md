@@ -68,14 +68,22 @@ and the manifest is parsed by the exact same `internal/index` code (plus one
 purely-additive `LoadFile` helper for reading from an arbitrary path) that
 the CLI uses for `dongle plugin install` — not reimplemented. The script
 then downloads each plugin's binary for the target platform into
-`cmd/embedded/` (git-ignored except for the tracked `cmd/embedded/.gitkeep`
-placeholder), writes `cmd/embedded/manifest.json`, and builds with
-`-tags embed` so `cmd/embed.go`'s `//go:embed all:embedded` picks the staged
-files up into the binary. On first run, `installEmbeddedDefaults()` unpacks
-them into the normal plugin store (`plugins/<name>/<version>/<entrypoint>`)
-and sets a `defaultsBootstrapped` flag in `state.json` so it never runs
-again — from then on those plugins behave exactly like ones installed via
-`dongle plugin install`.
+`internal/bootstrap/embedded/` (git-ignored except for the tracked
+`internal/bootstrap/embedded/.gitkeep` placeholder), writes
+`internal/bootstrap/embedded/manifest.json`, and builds with `-tags embed`
+so `internal/bootstrap/bootstrap.go`'s `//go:embed all:embedded` picks the
+staged files up into the binary. On first run, `bootstrap.InstallDefaults()`
+unpacks them into the normal plugin store
+(`plugins/<name>/<version>/<entrypoint>`) and sets a `defaultsBootstrapped`
+flag in `state.json` so it never runs again — from then on those plugins
+behave exactly like ones installed via `dongle plugin install`.
+
+The embedding mechanism itself — the `//go:embed` directive, the staged
+`embedded/` payload, and both the real and no-op `InstallDefaults`
+implementations — lives entirely in `internal/bootstrap`, since `//go:embed`
+paths are relative to the source file and can't reach outside a package
+with `../`. `cmd/` only calls `bootstrap.InstallDefaults()`; it holds no
+embedding logic of its own.
 
 `scripts/build-release-local.sh` is the same pipeline restricted to one
 platform: it detects the local machine's actual OS/arch via `go env
@@ -86,7 +94,7 @@ without waiting on all five platforms.
 
 A binary built without `-tags embed` (i.e. every binary except the ones
 `scripts/build-release.sh`/`scripts/build-release-local.sh` produce) links
-`cmd/embed_noop.go` instead, whose `installEmbeddedDefaults()` is a no-op —
+`internal/bootstrap/noop.go` instead, whose `InstallDefaults()` is a no-op —
 no embed dependency, no behavior change, nothing staged.
 
 ## What works vs. what's stubbed
@@ -116,8 +124,10 @@ brokering credentials into plugins).
 
 ```
 cmd/                    host entry (cobra): main.go, root.go (root command + plugin
-                        dispatch fall-through), plugin.go, index.go, embed.go /
-                        embed_noop.go (embedded default plugins, see below)
+                        dispatch fall-through), plugin.go, index.go — calls
+                        bootstrap.InstallDefaults(), holds no embedding logic
+internal/bootstrap/    embedded default plugins (see below): bootstrap.go /
+                        noop.go, plus the staged embedded/ payload
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec

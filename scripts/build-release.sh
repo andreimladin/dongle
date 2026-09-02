@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds "batteries-included" per-platform release binaries: the host plus
 # the plugins listed in defaults.lock, baked in via go:embed behind the
-# "embed" build tag (see cmd/embed.go). NOT run in CI — this is a release
+# "embed" build tag (see internal/bootstrap/bootstrap.go). NOT run in CI — this is a release
 # maintainer's manual/local step.
 #
 # No feed coordinates are hardcoded here: this script clones the plugin
@@ -30,7 +30,7 @@ INDEX_URL="${DONGLE_INDEX_URL:-$DEFAULT_INDEX_URL}"
 INDEX_BRANCH="${DONGLE_INDEX_BRANCH:-main}"
 
 LOCK_FILE="defaults.lock"
-EMBED_DIR="cmd/embedded"
+EMBED_DIR="internal/bootstrap/embedded"
 TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64)
 
 for bin in az git go; do
