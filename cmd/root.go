@@ -9,14 +9,8 @@ import (
 
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/dispatch"
+	"github.com/andreimladin/dongle/internal/index"
 )
-
-// hostVersion is the host's own semver. It defaults to "dev" for a plain
-// `go build`; scripts/build.sh and scripts/build-release.sh stamp the real
-// version in via -ldflags "-X main.hostVersion=...".
-var hostVersion = "dev"
-
-const protocol = "v1" // the host<->plugin contract version
 
 // exitError carries a specific process exit code through cobra's error
 // return path. The command that produced it has already printed its own
@@ -92,6 +86,10 @@ func init() {
 
 // Execute runs the root command and returns the process exit code.
 func Execute() int {
+	// Wire the build-time-injected index coordinates (see cmd/buildinfo.go)
+	// into internal/index before any index/plugin command runs.
+	index.SetDefaults(indexURL, indexBranch)
+
 	// Batteries-included binaries (built with -tags embed) self-register
 	// their embedded defaults here, before any dispatch happens. Plain
 	// builds get the no-op in internal/bootstrap/noop.go.

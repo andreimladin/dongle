@@ -1,8 +1,8 @@
 //go:build embed
 
 // Package bootstrap unpacks the plugins baked into a "batteries-included"
-// release binary (see defaults.lock and scripts/build-release.sh) into the
-// normal plugin store on first run. Everything the //go:embed directive
+// release binary (see configs/defaults.lock and scripts/build-release.sh)
+// into the normal plugin store on first run. Everything the //go:embed directive
 // needs — the directive itself and the staged embedded/ payload — lives
 // here because go:embed paths are relative to the source file and can't
 // reach outside this package with "../".
@@ -33,7 +33,7 @@ import (
 var embeddedFS embed.FS
 
 // embeddedDefault is one entry of embedded/manifest.json, written by
-// scripts/build-release.sh from defaults.lock.
+// scripts/build-release.sh from configs/defaults.lock.
 type embeddedDefault struct {
 	Name       string          `json:"name"`
 	Version    string          `json:"version"`
@@ -43,8 +43,8 @@ type embeddedDefault struct {
 }
 
 // InstallDefaults unpacks the plugins baked into this binary (see
-// defaults.lock and scripts/build-release.sh) into the plugin store on
-// first run only, then records that in state so it never runs again. It is
+// configs/defaults.lock and scripts/build-release.sh) into the plugin store
+// on first run only, then records that in state so it never runs again. It is
 // a no-op when nothing was staged — either a plain `go build -tags embed`
 // with an empty internal/bootstrap/embedded, or a run after the bootstrap
 // flag is already set.

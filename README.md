@@ -31,8 +31,8 @@ sh demo.sh          # local-dir install lifecycle, end to end
 |---|---|---|
 | `go build ./cmd` | dev binary, `hostVersion` defaults to `"dev"` | none — install them the normal way |
 | `scripts/build.sh` | `dist/dongle`, `hostVersion` stamped from `git describe` | none |
-| `scripts/build-release.sh` | `dist/dongle-<os>-<arch>` per platform | embedded defaults from `defaults.lock` |
-| `scripts/build-release-local.sh` | `dist/1es`, local machine only | embedded defaults from `defaults.lock` |
+| `scripts/build-release.sh` | `dist/dongle-<os>-<arch>` per platform | embedded defaults from `configs/defaults.lock` |
+| `scripts/build-release-local.sh` | `dist/1es`, local machine only | embedded defaults from `configs/defaults.lock` |
 
 `go build ./cmd` and `scripts/build.sh` are always available and require
 nothing beyond the Go toolchain — embedding is entirely opt-in and behind a
@@ -43,10 +43,35 @@ and are **not** run in CI: they need
 else, since feed-coordinate resolution goes through `tools/resolve` (see
 below) rather than a separate YAML tool.
 
+### Build inputs are injected at build time (`configs/`)
+
+`hostVersion`, the index URL, and the index branch are not hardcoded in Go —
+they're plain vars in `cmd/buildinfo.go` (`protocol`, the host↔plugin
+contract version, stays a `const`), stamped in at build time via `-ldflags
+-X`:
+
+- A plain `go build ./cmd` leaves them at their zero-value defaults:
+  `hostVersion` is `"dev"` and no index URL is baked in — set
+  `DONGLE_INDEX_URL` (and optionally `DONGLE_INDEX_BRANCH`) at runtime to use
+  `dongle index`/`dongle plugin` commands locally.
+- `scripts/build.sh` stamps `hostVersion` from `DONGLE_VERSION` (set by the
+  pipeline; falls back to `git describe`, then `"dev"` locally) but leaves
+  the index coordinates empty, same as a plain build.
+- `scripts/build-release.sh` and `scripts/build-release-local.sh` stamp all
+  three, sourced from `configs/`: `configs/index.env` (`INDEX_URL`,
+  `INDEX_BRANCH`) and `configs/defaults.lock`. `hostVersion` still comes from
+  outside the script — the pipeline's `DONGLE_VERSION` — and is **required**
+  in CI (detected via `CI`/`TF_BUILD`/`GITHUB_ACTIONS`); locally it falls
+  back to `git describe`, then `"dev"`.
+
+`configs/` (see `configs/README.md`) is human-edited and consumed only by
+these scripts — nothing in `configs/` is read at runtime or embedded into
+the binary.
+
 ### Embedded default plugins (`embed` build tag)
 
-`defaults.lock` (repo root) is the reviewable, diffable list of which
-plugins ship baked into a release binary:
+`configs/defaults.lock` is the reviewable, diffable list of which plugins
+ship baked into a release binary:
 
 ```
 # name  version
@@ -54,12 +79,13 @@ tacho   2.4.0
 bell    1.1.0
 ```
 
-`scripts/build-release.sh` clones the plugin index fresh into a temp dir on
-every run (`DONGLE_INDEX_URL`/`DONGLE_INDEX_BRANCH` override it, same as the
-CLI), then builds `tools/resolve` — a small build-time-only Go helper in
-this repo, not a `dongle` subcommand — into that temp dir. For each
-`defaults.lock` entry it shells out to it: `resolve <name> --version <v>
---os <os> --arch <arch> --index <indexdir>` reads `plugins/<name>.yaml`
+`scripts/build-release.sh` sources `configs/index.env` for `INDEX_URL`/
+`INDEX_BRANCH` and clones the plugin index fresh into a temp dir on every
+run using those same coordinates — the ones it also bakes into the binary
+via `-ldflags` — then builds `tools/resolve` — a small build-time-only Go
+helper in this repo, not a `dongle` subcommand — into that temp dir. For each
+`configs/defaults.lock` entry it shells out to it: `resolve <name> --version
+<v> --os <os> --arch <arch> --index <indexdir>` reads `plugins/<name>.yaml`
 directly from the freshly cloned checkout (no cache, no network) and prints
 the plugin's Azure Artifacts feed coordinates and per-platform package name
 as `eval`-able `KEY="value"` lines. Nothing about the feed — organization,
@@ -123,9 +149,14 @@ brokering credentials into plugins).
 ## Layout
 
 ```
+configs/                build inputs consumed by scripts/build-release.sh
+                        (index.env, defaults.lock) — human-edited, not read
+                        at runtime, not embedded
 cmd/                    host entry (cobra): main.go, root.go (root command + plugin
-                        dispatch fall-through), plugin.go, index.go — calls
-                        bootstrap.InstallDefaults(), holds no embedding logic
+                        dispatch fall-through), plugin.go, index.go, buildinfo.go
+                        (hostVersion/indexURL/indexBranch vars + protocol const,
+                        injected via -ldflags) — calls bootstrap.InstallDefaults(),
+                        holds no embedding logic
 internal/bootstrap/    embedded default plugins (see below): bootstrap.go /
                         noop.go, plus the staged embedded/ payload
 internal/compat/       semver + host/protocol gate (single source of truth)
@@ -183,7 +214,8 @@ set `feed.project` in the index manifest — `downloadArtifact` passes `--projec
 and `--scope project` to `az artifacts universal download` when it's set.
 Org-scoped feeds omit `feed.project` entirely.
 
-Set the embedded index URL in `internal/index/index.go` (`IndexURL`).
+Set the index URL/branch in `configs/index.env` — it's injected into the
+binary at build time (see "Build inputs are injected at build time" above).
 `DONGLE_INDEX_URL` overrides it for dev.
 
 ## Index access
@@ -204,14 +236,16 @@ One-time setup:
    nothing for you to rotate or maintain.
 
 Dev overrides: `DONGLE_INDEX_URL` points at a different index repo,
-`DONGLE_INDEX_BRANCH` pins a different branch (both default to the embedded
-`IndexURL`/`IndexBranch` in `internal/index/index.go`).
+`DONGLE_INDEX_BRANCH` pins a different branch (both default to the values
+injected at build time from `configs/index.env`; a plain `go build ./cmd`
+has no index URL baked in at all, so one of these overrides is required to
+use `dongle index`/`dongle plugin` commands).
 
 ## Before you publish this repo
 
 - Replace `andreimladin` with your GitHub/module path everywhere:
   `grep -rl andreimladin . | xargs sed -i 's/andreimladin/<you>/g'`
-- Set `IndexURL` and `IndexBranch` in `internal/index/index.go`.
+- Set `INDEX_URL` and `INDEX_BRANCH` in `configs/index.env`.
 - Fill in the `LICENSE` year/name.
 
 ## License

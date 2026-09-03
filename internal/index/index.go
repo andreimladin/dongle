@@ -1,7 +1,9 @@
 // Package index manages the embedded git-based plugin catalog: a local clone,
 // refreshed on a TTL, mapping plugin name -> version -> Azure feed artifact.
 //
-// The index URL and branch are embedded (not user-editable). DONGLE_INDEX_URL
+// The index URL and branch are build-time build inputs — baked in via
+// -ldflags at build time (see cmd/buildinfo.go and configs/index.env) and
+// wired into this package once at startup via SetDefaults. DONGLE_INDEX_URL
 // and DONGLE_INDEX_BRANCH override them as dev escape hatches; normal users
 // never set them.
 package index
@@ -21,27 +23,37 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-// IndexURL is the catalog git repository: a private Azure DevOps repo served
-// over HTTPS. dongle does not manage credentials for it — cloning and pulling
-// shell out to the system `git`, which authenticates via Git Credential
-// Manager (or whatever credential helper the machine already has configured).
-const (
-	IndexURL    = "https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO]"
-	IndexBranch = "main"
+// defaultURL and defaultBranch are the catalog git repository coordinates —
+// a private Azure DevOps repo served over HTTPS — wired in once via
+// SetDefaults from the build-time-injected values (cmd/buildinfo.go). dongle
+// does not manage credentials for it — cloning and pulling shell out to the
+// system `git`, which authenticates via Git Credential Manager (or whatever
+// credential helper the machine already has configured).
+var (
+	defaultURL    string
+	defaultBranch string
 )
+
+// SetDefaults wires the build-time-injected index URL/branch into this
+// package. Called once at startup (see cmd/root.go's Execute), before any
+// index/plugin command runs.
+func SetDefaults(url, branch string) {
+	defaultURL = url
+	defaultBranch = branch
+}
 
 func indexURL() string {
 	if v := os.Getenv("DONGLE_INDEX_URL"); v != "" {
 		return v
 	}
-	return IndexURL
+	return defaultURL
 }
 
 func indexBranch() string {
 	if v := os.Getenv("DONGLE_INDEX_BRANCH"); v != "" {
 		return v
 	}
-	return IndexBranch
+	return defaultBranch
 }
 
 func cacheDir() string { return filepath.Join(state.DataDir(), "index") }
