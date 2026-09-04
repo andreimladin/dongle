@@ -1,30 +1,42 @@
 #!/usr/bin/env bash
-# Builds "batteries-included" per-platform release binaries: the host plus
-# the plugins listed in configs/defaults.lock, baked in via go:embed behind
-# the "embed" build tag (see internal/bootstrap/bootstrap.go). NOT run in CI
-# — this is a release maintainer's manual/local step.
+# The one release build script: cross-compiles "batteries-included"
+# binaries for all six supported platforms — the host plus the plugins
+# listed in configs/defaults.lock, baked in via go:embed behind the "embed"
+# build tag (see internal/bootstrap/bootstrap.go). Release-only; NOT run on
+# every PR (see azure-pipelines-ci.yml for that) — this is what
+# azure-pipelines-release.yml runs, and it's also runnable by hand for a
+# local test build:
 #
-# configs/ is the single source of truth for build inputs (see configs/README.md):
-# index url/branch come from configs/index.env, the embedded plugin list from
-# configs/defaults.lock. No feed coordinates are hardcoded here: this script
-# clones the plugin index fresh into a temp dir on every run — using the same
-# INDEX_URL/INDEX_BRANCH it bakes into the binary via -ldflags, so the binary
-# and the clone it resolved plugins against always agree — and shells out to
-# tools/resolve (a small build-time-only Go helper in this repo — not a
-# dongle subcommand) to read each plugin's Azure Artifacts feed
-# (organization/feed/project) and per-platform package name straight out of
-# its index manifest (plugins/<name>.yaml) — parsed by the exact same
-# internal/index code `dongle plugin install` uses, not reimplemented. It
-# then needs `az` credentials for that feed.
+#   DONGLE_VERSION=1.4.0 ./scripts/build-binaries.sh
+#
+# configs/ is the single source of truth for build inputs (see
+# configs/README.md): index url/branch come from configs/index.env, the
+# embedded plugin list from configs/defaults.lock. No feed coordinates are
+# hardcoded here: this script clones the plugin index fresh into a temp dir
+# on every run — using the same INDEX_URL/INDEX_BRANCH it bakes into the
+# binary via -ldflags, so the binary and the clone it resolved plugins
+# against always agree — and shells out to tools/resolve (a small
+# build-time-only Go helper in this repo — not a dongle subcommand) to read
+# each plugin's Azure Artifacts feed (organization/feed/project) and
+# per-platform package name straight out of its index manifest
+# (plugins/<name>.yaml) — parsed by the exact same internal/index code
+# `dongle plugin install` uses, not reimplemented. It then needs `az`
+# credentials for the plugin feed (see azure-pipelines-release.yml).
+#
+# Every defaults.lock plugin must be published (per plugin, per platform) to
+# the feed for all six targets below — if tools/resolve can't find a target
+# platform in a plugin's manifest, or the az download fails, this script
+# fails fast naming the plugin and platform rather than silently shipping a
+# binary with that default missing.
 #
 # hostVersion comes from outside this script: the pipeline sets
 # DONGLE_VERSION (required in CI); locally it falls back to `git describe`,
 # then "dev".
 #
-# Requires: az (logged in to the feed), git, go.
+# Requires: az (logged in to the plugin feed), git, go.
 #
-# For a plain, plugin-less build use scripts/build.sh (or `go build ./cmd`
-# directly).
+# For a plain, plugin-less dev build, `go build ./cmd` needs nothing beyond
+# the Go toolchain (hostVersion "dev", no index URL baked in).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -32,7 +44,7 @@ source configs/index.env # INDEX_URL, INDEX_BRANCH
 
 LOCK_FILE="configs/defaults.lock"
 EMBED_DIR="internal/bootstrap/embedded"
-TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64)
+TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64)
 
 for bin in az git go; do
 	if ! command -v "$bin" >/dev/null 2>&1; then
@@ -92,9 +104,12 @@ for target in "${TARGETS[@]}"; do
 		[ -n "$name" ] || continue
 
 		echo "  [$name] resolving feed coordinates for $GOOS/$GOARCH..."
-		resolved=$("$TMP/resolve" "$name" \
+		if ! resolved=$("$TMP/resolve" "$name" \
 			--version "$version" --os "$GOOS" --arch "$GOARCH" \
-			--index "$TMP/index" --format env)
+			--index "$TMP/index" --format env); then
+			echo "error: [$name] has no published build for $GOOS/$GOARCH — cannot embed defaults for this target" >&2
+			exit 1
+		fi
 		eval "$resolved"
 
 		echo "  [$name] downloading $PACKAGE@$VERSION from feed '$FEED' (org $ORG)..."
@@ -113,7 +128,7 @@ for target in "${TARGETS[@]}"; do
 			az_args+=(--project "$PROJECT" --scope project)
 		fi
 		if ! az "${az_args[@]}"; then
-			echo "error: az download failed for $PACKAGE@$VERSION ($GOOS/$GOARCH)" >&2
+			echo "error: az download failed for $PACKAGE@$VERSION ($GOOS/$GOARCH) — plugin [$name] may not be published for this platform" >&2
 			exit 1
 		fi
 

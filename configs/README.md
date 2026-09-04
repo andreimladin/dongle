@@ -1,1 +1,1 @@
-Build inputs consumed by scripts/build-release.sh. Not read at runtime.
+Build inputs consumed by scripts/build-binaries.sh. Not read at runtime.

@@ -1,8 +1,8 @@
 package main
 
 // Build-time build inputs, injected via -ldflags at build time (see
-// scripts/build.sh, scripts/build-release.sh, and configs/ — the
-// human-edited source of truth those scripts bake these values from).
+// scripts/build-binaries.sh, and configs/ — the human-edited source of
+// truth that script bakes these values from).
 // A plain `go build ./cmd` leaves them at these defaults: hostVersion
 // "dev", no index URL (DONGLE_INDEX_URL is then required to use `dongle
 // index`/`dongle plugin` commands), indexBranch "main".

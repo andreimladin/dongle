@@ -1,5 +1,5 @@
 # defaults.lock — plugins embedded into a release build by
-# scripts/build-release.sh (requires `-tags embed`; see cmd/embed.go).
+# scripts/build-binaries.sh (requires `-tags embed`; see internal/bootstrap).
 #
 # Reviewable, diffable list: one plugin per line, name and version
 # separated by whitespace. Lines starting with # and blank lines are
