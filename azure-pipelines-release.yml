@@ -20,7 +20,7 @@ variables:
   # TODO: set these to your real Azure Artifacts feed names and service
   # connection before running this pipeline. AZURE_SERVICE_CONNECTION must
   # have access to BOTH feeds: PLUGIN_FEED (to download the embedded
-  # defaults listed in configs/defaults.lock) and HOST_FEED (to publish the
+  # defaults listed in configs/build.yaml) and HOST_FEED (to publish the
   # six built host binaries).
   PLUGIN_FEED: "TODO-plugin-feed-name"
   HOST_FEED: "TODO-host-feed-name"

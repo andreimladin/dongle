@@ -1,30 +1,31 @@
 #!/usr/bin/env bash
 # The one release build script: cross-compiles "batteries-included"
-# binaries for all six supported platforms — the host plus the plugins
-# listed in configs/defaults.lock, baked in via go:embed behind the "embed"
-# build tag (see internal/bootstrap/bootstrap.go). Release-only; NOT run on
-# every PR (see azure-pipelines-ci.yml for that) — this is what
+# binaries for every target platform listed in configs/build.yaml — the
+# host plus the plugins also listed there, baked in via go:embed behind the
+# "embed" build tag (see internal/bootstrap/bootstrap.go). Release-only;
+# NOT run on every PR (see azure-pipelines-ci.yml for that) — this is what
 # azure-pipelines-release.yml runs, and it's also runnable by hand for a
 # local test build:
 #
 #   DONGLE_VERSION=1.4.0 ./scripts/build-binaries.sh
 #
-# configs/ is the single source of truth for build inputs (see
-# configs/README.md): index url/branch come from configs/index.env, the
-# embedded plugin list from configs/defaults.lock. No feed coordinates are
-# hardcoded here: this script clones the plugin index fresh into a temp dir
-# on every run — using the same INDEX_URL/INDEX_BRANCH it bakes into the
-# binary via -ldflags, so the binary and the clone it resolved plugins
-# against always agree — and shells out to tools/resolve (a small
-# build-time-only Go helper in this repo — not a dongle subcommand) to read
-# each plugin's Azure Artifacts feed (organization/feed/project) and
-# per-platform package name straight out of its index manifest
-# (plugins/<name>.yaml) — parsed by the exact same internal/index code
-# `dongle plugin install` uses, not reimplemented. It then needs `az`
-# credentials for the plugin feed (see azure-pipelines-release.yml).
+# configs/build.yaml (see configs/README.md) is the single source of truth
+# for build inputs — index url/branch, the embedded plugin list, and the
+# target platforms. This script hardcodes none of them: it builds
+# tools/buildconfig (a small build-time-only Go helper in this repo, not a
+# dongle subcommand) once and shells out to it for each section. It clones
+# the plugin index fresh into a temp dir on every run — using the same
+# INDEX_URL/INDEX_BRANCH it bakes into the binary via -ldflags, so the
+# binary and the clone it resolved plugins against always agree — and
+# shells out to tools/resolve (also build-time-only) to read each plugin's
+# Azure Artifacts feed (organization/feed/project) and per-platform package
+# name straight out of its index manifest (plugins/<name>.yaml) — parsed by
+# the exact same internal/index code `dongle plugin install` uses, not
+# reimplemented. It then needs `az` credentials for the plugin feed (see
+# azure-pipelines-release.yml).
 #
-# Every defaults.lock plugin must be published (per plugin, per platform) to
-# the feed for all six targets below — if tools/resolve can't find a target
+# Every embedded plugin must be published, per platform, to the feed for
+# every target in configs/build.yaml — if tools/resolve can't find a target
 # platform in a plugin's manifest, or the az download fails, this script
 # fails fast naming the plugin and platform rather than silently shipping a
 # binary with that default missing.
@@ -40,11 +41,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-source configs/index.env # INDEX_URL, INDEX_BRANCH
-
-LOCK_FILE="configs/defaults.lock"
 EMBED_DIR="internal/bootstrap/embedded"
-TARGETS=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64)
 
 for bin in az git go; do
 	if ! command -v "$bin" >/dev/null 2>&1; then
@@ -67,6 +64,14 @@ HOST_VERSION="${DONGLE_VERSION:-$(git describe --tags --always --dirty 2>/dev/nu
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+echo "building buildconfig tool..."
+if ! go build -o "$TMP/buildconfig" ./tools/buildconfig; then
+	echo "error: could not build tools/buildconfig" >&2
+	exit 1
+fi
+
+eval "$("$TMP/buildconfig" --get index)" # INDEX_URL, INDEX_BRANCH
+
 echo "cloning index $INDEX_URL (branch $INDEX_BRANCH)..."
 if ! git clone --depth 1 --branch "$INDEX_BRANCH" "$INDEX_URL" "$TMP/index" >&2; then
 	echo "error: could not clone index $INDEX_URL" >&2
@@ -86,15 +91,8 @@ clean_embed() {
 	find "$EMBED_DIR" -mindepth 1 ! -name '.gitkeep' -exec rm -rf {} +
 }
 
-# read_defaults prints "name version" pairs from configs/defaults.lock,
-# skipping blank lines and comments.
-read_defaults() {
-	grep -Ev '^[[:space:]]*(#|$)' "$LOCK_FILE"
-}
-
-for target in "${TARGETS[@]}"; do
-	GOOS="${target%/*}"
-	GOARCH="${target#*/}"
+while read -r GOOS GOARCH; do
+	[ -n "$GOOS" ] || continue
 	echo "== $GOOS/$GOARCH =="
 
 	clean_embed
@@ -148,7 +146,7 @@ for target in "${TARGETS[@]}"; do
 
 		manifest_entries+=("{\"name\":\"${name}\",\"version\":\"${VERSION}\",\"file\":\"${file}\",\"entrypoint\":\"${file}\"}")
 		echo "  [$name] staged as $file"
-	done < <(read_defaults)
+	done < <("$TMP/buildconfig" --get embedded)
 
 	{
 		printf '[\n'
@@ -174,6 +172,6 @@ for target in "${TARGETS[@]}"; do
 
 	clean_embed
 	echo "  done: ${out}"
-done
+done < <("$TMP/buildconfig" --get targets)
 
 echo "release build complete: $HOST_VERSION"
