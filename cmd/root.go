@@ -12,6 +12,23 @@ import (
 	"github.com/andreimladin/dongle/internal/index"
 )
 
+// Build-time build inputs, injected via -ldflags at build time (see
+// scripts/build-binaries.sh and configs/ — the human-edited source of
+// truth that script bakes these values from). A plain `go build ./cmd`
+// leaves them at these defaults: hostVersion "dev", no index URL
+// (DONGLE_INDEX_URL is then required to use `dongle index`/`dongle plugin`
+// commands), indexBranch "main".
+var (
+	hostVersion = "dev"
+	indexURL    = "" // injected at build; env DONGLE_INDEX_URL overrides
+	indexBranch = "main"
+)
+
+// protocol is the host<->plugin contract version. It is not a build
+// input — it changes only when the connector spec itself changes — so it
+// stays a const rather than joining the vars above.
+const protocol = "v1"
+
 // exitError carries a specific process exit code through cobra's error
 // return path. The command that produced it has already printed its own
 // "error: ..." message to stderr (matching the pre-cobra behavior), so
@@ -86,8 +103,8 @@ func init() {
 
 // Execute runs the root command and returns the process exit code.
 func Execute() int {
-	// Wire the build-time-injected index coordinates (see cmd/buildinfo.go)
-	// into internal/index before any index/plugin command runs.
+	// Wire the build-time-injected index coordinates (above) into
+	// internal/index before any index/plugin command runs.
 	index.SetDefaults(indexURL, indexBranch)
 
 	// Batteries-included binaries (built with -tags embed) self-register
