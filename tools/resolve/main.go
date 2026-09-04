@@ -1,5 +1,5 @@
 // Command resolve is a build-time-only helper — NOT a dongle subcommand and
-// not part of the host↔plugin contract. scripts/build-release.sh shells out
+// not part of the host↔plugin contract. scripts/build-binaries.sh shells out
 // to it, once per (plugin, target platform), to read a plugin's Azure
 // Artifacts feed coordinates straight out of a local index checkout, so the
 // release script never hardcodes anything about the feed or reimplements

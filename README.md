@@ -25,58 +25,123 @@ sh demo.sh          # local-dir install lifecycle, end to end
 
 `demo.sh` isolates state under `./dist` via `DONGLE_DATA_DIR`.
 
-### Four ways to build the host
+### Two ways to build the host
 
 | command | binary | plugins |
 |---|---|---|
 | `go build ./cmd` | dev binary, `hostVersion` defaults to `"dev"` | none — install them the normal way |
-| `scripts/build.sh` | `dist/dongle`, `hostVersion` stamped from `git describe` | none |
-| `scripts/build-release.sh` | `dist/dongle-<os>-<arch>` per platform | embedded defaults from `defaults.lock` |
-| `scripts/build-release-local.sh` | `dist/1es`, local machine only | embedded defaults from `defaults.lock` |
+| `scripts/build-binaries.sh` | `dist/dongle-<os>-<arch>` for every target in `configs/build.yaml` | embedded defaults from `configs/build.yaml` |
 
-`go build ./cmd` and `scripts/build.sh` are always available and require
-nothing beyond the Go toolchain — embedding is entirely opt-in and behind a
-build tag, so plain builds have no new behavior. `scripts/build-release.sh`
-and `scripts/build-release-local.sh` are a release maintainer's manual step
-and are **not** run in CI: they need
-`az` (logged in to the feed) and `git`, on top of the Go toolchain — nothing
-else, since feed-coordinate resolution goes through `tools/resolve` (see
-below) rather than a separate YAML tool.
+`go build ./cmd` is always available and requires nothing beyond the Go
+toolchain — embedding is entirely opt-in and behind a build tag, so a plain
+build has no new behavior. `scripts/build-binaries.sh` is the one release
+build script (see "Embedded default plugins" below); it's a release
+maintainer's manual step, run locally or by `azure-pipelines-release.yml`
+(see "Pipelines" below) — **not** run in CI on every PR. It needs `az`
+(logged in to the plugin feed) and `git`, on top of the Go toolchain —
+nothing else, since feed-coordinate resolution goes through `tools/resolve`
+(see below) rather than a separate YAML tool.
+
+### Build inputs are injected at build time (`configs/build.yaml`)
+
+`hostVersion`, the index URL, and the index branch are not hardcoded in Go —
+they're plain vars in `cmd/root.go` (`protocol`, the host↔plugin contract
+version, stays a `const`), stamped in at build time via `-ldflags -X`:
+
+- A plain `go build ./cmd` leaves them at their zero-value defaults:
+  `hostVersion` is `"dev"` and no index URL is baked in — set
+  `DONGLE_INDEX_URL` (and optionally `DONGLE_INDEX_BRANCH`) at runtime to use
+  `dongle index`/`dongle plugin` commands locally.
+- `scripts/build-binaries.sh` stamps all three, read from `configs/build.yaml`
+  (via `tools/buildconfig` — see "Embedded default plugins" below) — the
+  script itself hardcodes none of it. `hostVersion` still comes from outside
+  the script — the pipeline's `DONGLE_VERSION` — and is **required** in CI
+  (detected via `CI`/`TF_BUILD`/`GITHUB_ACTIONS`); locally it falls back to
+  `git describe`, then `"dev"`. Runnable by hand: `DONGLE_VERSION=1.4.0
+  ./scripts/build-binaries.sh`.
+
+`configs/build.yaml` (see `configs/README.md`) is human-edited and consumed
+only by `scripts/build-binaries.sh` — nothing in `configs/` is read at
+runtime or embedded into the binary.
+
+### Pipelines
+
+- **`azure-pipelines-ci.yml`** — the fast soundness gate: `go build ./...`,
+  `go vet ./...`, a `gofmt` check, and `go test ./...`. Runs on every PR and
+  every push to `main`/a feature branch. No feed access, no
+  cross-compilation.
+- **`azure-pipelines-release.yml`** — manual-only (`trigger: none`, `pr:
+  none`; queued by hand or the REST API). Only makes sense run against a
+  `release/X.Y.Z` branch: a guard step fails fast otherwise, and derives
+  `DONGLE_VERSION` from the branch name. It then logs in via an Azure
+  service connection with access to both the plugin feed (to download
+  `configs/build.yaml`'s embedded defaults) and a separate host feed,
+  runs `scripts/build-binaries.sh`, and publishes each of the six built
+  binaries as its own Universal Package to the host feed. Feed names and the
+  service connection are parameterized at the top of the file with `TODO`
+  placeholders — fill those in before running it.
+
+All actual build logic lives in `scripts/build-binaries.sh`; both pipelines
+only orchestrate it, so a future GitHub Actions migration is a wrapper
+rewrite, not a rewrite of the build itself.
 
 ### Embedded default plugins (`embed` build tag)
 
-`defaults.lock` (repo root) is the reviewable, diffable list of which
-plugins ship baked into a release binary:
+`configs/build.yaml` is the single, reviewable, diffable source of truth for
+a release build — which plugins (at which exact versions) ship baked in,
+the index coordinates, and which platforms to cross-compile for:
 
-```
-# name  version
-tacho   2.4.0
-bell    1.1.0
+```yaml
+index:
+  url: https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO] # TODO: set the real index repo URL
+  branch: main
+
+embedded:
+  - { name: tacho, version: 2.4.0 }
+  - { name: bell, version: 1.1.0 }
+
+targets:
+  - { os: darwin, arch: arm64 }
+  - { os: darwin, arch: amd64 }
+  - { os: linux, arch: amd64 }
+  - { os: linux, arch: arm64 }
+  - { os: windows, arch: amd64 }
+  - { os: windows, arch: arm64 }
 ```
 
-`scripts/build-release.sh` clones the plugin index fresh into a temp dir on
-every run (`DONGLE_INDEX_URL`/`DONGLE_INDEX_BRANCH` override it, same as the
-CLI), then builds `tools/resolve` — a small build-time-only Go helper in
-this repo, not a `dongle` subcommand — into that temp dir. For each
-`defaults.lock` entry it shells out to it: `resolve <name> --version <v>
+`scripts/build-binaries.sh` reads all three sections through
+`tools/buildconfig` — a small build-time-only Go helper in this repo (reuses
+`gopkg.in/yaml.v3`, no `yq` dependency), not a `dongle` subcommand — instead
+of hardcoding any of it: `buildconfig --get index` prints `INDEX_URL`/
+`INDEX_BRANCH` as `eval`-able shell assignments, `--get targets` prints one
+`os arch` pair per line, and `--get embedded` prints one `name version` pair
+per line.
+
+The script clones the plugin index fresh into a temp dir on every run, using
+the same `INDEX_URL`/`INDEX_BRANCH` it also bakes into the binary via
+`-ldflags`, then builds `tools/resolve` — the existing build-time-only
+manifest resolver — into that same temp dir. For each `embedded` entry, for
+each `targets` platform, it shells out to it: `resolve <name> --version <v>
 --os <os> --arch <arch> --index <indexdir>` reads `plugins/<name>.yaml`
 directly from the freshly cloned checkout (no cache, no network) and prints
 the plugin's Azure Artifacts feed coordinates and per-platform package name
-as `eval`-able `KEY="value"` lines. Nothing about the feed — organization,
-feed name, project, or package naming — is hardcoded in the script itself,
-and the manifest is parsed by the exact same `internal/index` code (plus one
-purely-additive `LoadFile` helper for reading from an arbitrary path) that
-the CLI uses for `dongle plugin install` — not reimplemented. The script
-then downloads each plugin's binary for the target platform into
-`internal/bootstrap/embedded/` (git-ignored except for the tracked
-`internal/bootstrap/embedded/.gitkeep` placeholder), writes
-`internal/bootstrap/embedded/manifest.json`, and builds with `-tags embed`
-so `internal/bootstrap/bootstrap.go`'s `//go:embed all:embedded` picks the
-staged files up into the binary. On first run, `bootstrap.InstallDefaults()`
-unpacks them into the normal plugin store
-(`plugins/<name>/<version>/<entrypoint>`) and sets a `defaultsBootstrapped`
-flag in `state.json` so it never runs again — from then on those plugins
-behave exactly like ones installed via `dongle plugin install`.
+as `eval`-able `KEY="value"` lines — or fails, naming the plugin and
+platform, if that plugin has no published build for the target. Nothing
+about the feed — organization, feed name, project, or package naming — is
+hardcoded in the script itself, and the manifest is parsed by the exact same
+`internal/index` code (plus one purely-additive `LoadFile` helper for
+reading from an arbitrary path) that the CLI uses for `dongle plugin
+install` — not reimplemented. The script then downloads each plugin's binary
+for the target platform into `internal/bootstrap/embedded/` (git-ignored
+except for the tracked `internal/bootstrap/embedded/.gitkeep` placeholder),
+writes `internal/bootstrap/embedded/manifest.json`, and builds with
+`-tags embed` so `internal/bootstrap/bootstrap.go`'s `//go:embed all:embedded`
+picks the staged files up into the binary, clearing the embed dir between
+platforms. On first run, `bootstrap.InstallDefaults()` unpacks them into the
+normal plugin store (`plugins/<name>/<version>/<entrypoint>`) and sets a
+`defaultsBootstrapped` flag in `state.json` so it never runs again — from
+then on those plugins behave exactly like ones installed via `dongle plugin
+install`.
 
 The embedding mechanism itself — the `//go:embed` directive, the staged
 `embedded/` payload, and both the real and no-op `InstallDefaults`
@@ -85,17 +150,10 @@ paths are relative to the source file and can't reach outside a package
 with `../`. `cmd/` only calls `bootstrap.InstallDefaults()`; it holds no
 embedding logic of its own.
 
-`scripts/build-release-local.sh` is the same pipeline restricted to one
-platform: it detects the local machine's actual OS/arch via `go env
-GOHOSTOS`/`GOHOSTARCH` (not `GOOS`/`GOARCH`, which would instead follow any
-cross-compilation env vars already set) and produces a single binary,
-`dist/1es`, instead of looping over every target. Handy for local dev/testing
-without waiting on all five platforms.
-
 A binary built without `-tags embed` (i.e. every binary except the ones
-`scripts/build-release.sh`/`scripts/build-release-local.sh` produce) links
-`internal/bootstrap/noop.go` instead, whose `InstallDefaults()` is a no-op —
-no embed dependency, no behavior change, nothing staged.
+`scripts/build-binaries.sh` produces) links `internal/bootstrap/noop.go`
+instead, whose `InstallDefaults()` is a no-op — no embed dependency, no
+behavior change, nothing staged.
 
 ## What works vs. what's stubbed
 
@@ -123,9 +181,19 @@ brokering credentials into plugins).
 ## Layout
 
 ```
-cmd/                    host entry (cobra): main.go, root.go (root command + plugin
-                        dispatch fall-through), plugin.go, index.go — calls
-                        bootstrap.InstallDefaults(), holds no embedding logic
+azure-pipelines-ci.yml       PR/push soundness gate: build, vet, gofmt, test
+azure-pipelines-release.yml  manual-only: runs scripts/build-binaries.sh on a
+                        release/X.Y.Z branch, publishes to the host feed
+configs/                build inputs consumed by scripts/build-binaries.sh
+                        (build.yaml: index url/branch, embedded plugins,
+                        target platforms) — human-edited, not read at
+                        runtime, not embedded
+cmd/                    host entry (cobra): main.go, root.go (root command +
+                        plugin dispatch fall-through, plus the
+                        hostVersion/indexURL/indexBranch vars + protocol
+                        const, injected via -ldflags — calls
+                        bootstrap.InstallDefaults(), holds no embedding
+                        logic), plugin.go, index.go
 internal/bootstrap/    embedded default plugins (see below): bootstrap.go /
                         noop.go, plus the staged embedded/ payload
 internal/compat/       semver + host/protocol gate (single source of truth)
@@ -133,9 +201,12 @@ internal/state/        installed-plugin registry (entrypoint + requires) + on-di
 internal/dispatch/     resolve -> compat -> exec
 internal/plugincmd/    plugin list/search/install/uninstall (+ index resolver)
 internal/index/        embedded git catalog: clone/TTL-pull cache, lookups
-tools/resolve/          build-time-only helper for scripts/build-release.sh
+tools/resolve/          build-time-only helper: manifest -> feed coordinates
                         (not a dongle subcommand) — see "Embedded default
                         plugins" above
+tools/buildconfig/      build-time-only helper: reads configs/build.yaml,
+                        prints each section for scripts/build-binaries.sh
+                        (not a dongle subcommand)
 examples/dongle-deploy/  sample cobra plugin (its own module)
 examples/index/          sample index-repo manifest (Azure feed coordinates)
 ```
@@ -183,8 +254,9 @@ set `feed.project` in the index manifest — `downloadArtifact` passes `--projec
 and `--scope project` to `az artifacts universal download` when it's set.
 Org-scoped feeds omit `feed.project` entirely.
 
-Set the embedded index URL in `internal/index/index.go` (`IndexURL`).
-`DONGLE_INDEX_URL` overrides it for dev.
+Set the index URL/branch in `configs/build.yaml`'s `index:` section — it's
+injected into the binary at build time (see "Build inputs are injected at
+build time" above). `DONGLE_INDEX_URL` overrides it for dev.
 
 ## Index access
 
@@ -204,14 +276,16 @@ One-time setup:
    nothing for you to rotate or maintain.
 
 Dev overrides: `DONGLE_INDEX_URL` points at a different index repo,
-`DONGLE_INDEX_BRANCH` pins a different branch (both default to the embedded
-`IndexURL`/`IndexBranch` in `internal/index/index.go`).
+`DONGLE_INDEX_BRANCH` pins a different branch (both default to the values
+injected at build time from `configs/build.yaml`'s `index:` section; a plain
+`go build ./cmd` has no index URL baked in at all, so one of these overrides
+is required to use `dongle index`/`dongle plugin` commands).
 
 ## Before you publish this repo
 
 - Replace `andreimladin` with your GitHub/module path everywhere:
   `grep -rl andreimladin . | xargs sed -i 's/andreimladin/<you>/g'`
-- Set `IndexURL` and `IndexBranch` in `internal/index/index.go`.
+- Set `index.url` and `index.branch` in `configs/build.yaml`.
 - Fill in the `LICENSE` year/name.
 
 ## License

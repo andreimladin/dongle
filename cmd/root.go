@@ -9,14 +9,25 @@ import (
 
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/dispatch"
+	"github.com/andreimladin/dongle/internal/index"
 )
 
-// hostVersion is the host's own semver. It defaults to "dev" for a plain
-// `go build`; scripts/build.sh and scripts/build-release.sh stamp the real
-// version in via -ldflags "-X main.hostVersion=...".
-var hostVersion = "dev"
+// Build-time build inputs, injected via -ldflags at build time (see
+// scripts/build-binaries.sh and configs/ — the human-edited source of
+// truth that script bakes these values from). A plain `go build ./cmd`
+// leaves them at these defaults: hostVersion "dev", no index URL
+// (DONGLE_INDEX_URL is then required to use `dongle index`/`dongle plugin`
+// commands), indexBranch "main".
+var (
+	hostVersion = "dev"
+	indexURL    = "" // injected at build; env DONGLE_INDEX_URL overrides
+	indexBranch = "main"
+)
 
-const protocol = "v1" // the host<->plugin contract version
+// protocol is the host<->plugin contract version. It is not a build
+// input — it changes only when the connector spec itself changes — so it
+// stays a const rather than joining the vars above.
+const protocol = "v1"
 
 // exitError carries a specific process exit code through cobra's error
 // return path. The command that produced it has already printed its own
@@ -92,6 +103,10 @@ func init() {
 
 // Execute runs the root command and returns the process exit code.
 func Execute() int {
+	// Wire the build-time-injected index coordinates (above) into
+	// internal/index before any index/plugin command runs.
+	index.SetDefaults(indexURL, indexBranch)
+
 	// Batteries-included binaries (built with -tags embed) self-register
 	// their embedded defaults here, before any dispatch happens. Plain
 	// builds get the no-op in internal/bootstrap/noop.go.
