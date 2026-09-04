@@ -1,0 +1,90 @@
+# Manual-only release pipeline: builds all six "batteries-included" host
+# binaries via scripts/build-binaries.sh and publishes each as its own
+# Universal Package to the host feed. Never triggered by a push or a PR —
+# `trigger: none` / `pr: none` below mean this only runs when queued by
+# hand (or via the REST API), and only makes sense run against a
+# release/X.Y.Z branch (the guard step below enforces that and derives
+# DONGLE_VERSION from the branch name).
+#
+# All actual build logic lives in scripts/build-binaries.sh — this pipeline
+# only orchestrates (checkout, az login, run the script, publish its
+# output), so a future migration to GitHub Actions is a thin wrapper
+# rewrite, not a rewrite of the build itself.
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # TODO: set these to your real Azure Artifacts feed names and service
+  # connection before running this pipeline. AZURE_SERVICE_CONNECTION must
+  # have access to BOTH feeds: PLUGIN_FEED (to download the embedded
+  # defaults listed in configs/defaults.lock) and HOST_FEED (to publish the
+  # six built host binaries).
+  PLUGIN_FEED: "TODO-plugin-feed-name"
+  HOST_FEED: "TODO-host-feed-name"
+  AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
+
+steps:
+  - checkout: self
+
+  - script: |
+      set -eu
+      branch="$(Build.SourceBranch)"
+      if [[ ! "$branch" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "error: this pipeline must be run on a release/X.Y.Z branch (got $branch)" >&2
+        exit 1
+      fi
+      version="${branch#refs/heads/release/}"
+      echo "releasing version $version"
+      echo "##vso[task.setvariable variable=DONGLE_VERSION]$version"
+    displayName: "Guard: verify release/X.Y.Z branch, derive DONGLE_VERSION"
+
+  - task: GoTool@0
+    inputs:
+      version: "1.21"
+    displayName: "Install Go"
+
+  - task: AzureCLI@2
+    inputs:
+      azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -eu
+        az extension add --name azure-devops --only-show-errors
+        DONGLE_VERSION="$(DONGLE_VERSION)" ./scripts/build-binaries.sh
+    displayName: "Build all six binaries (embeds defaults from the plugin feed)"
+
+  - task: AzureCLI@2
+    inputs:
+      azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -eu
+        az extension add --name azure-devops --only-show-errors
+        for target in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64 windows-amd64 windows-arm64; do
+          bin="dist/dongle-${target}"
+          [[ "$target" == windows-* ]] && bin="${bin}.exe"
+          if [ ! -f "$bin" ]; then
+            echo "error: expected build output $bin not found" >&2
+            exit 1
+          fi
+
+          stage=$(mktemp -d)
+          cp "$bin" "$stage/"
+
+          echo "publishing dongle-${target}@$(DONGLE_VERSION)..."
+          az artifacts universal publish \
+            --organization "$(System.CollectionUri)" \
+            --feed "$(HOST_FEED)" \
+            --name "dongle-${target}" \
+            --version "$(DONGLE_VERSION)" \
+            --path "$stage" \
+            --description "dongle host release $(DONGLE_VERSION) ($target)"
+
+          rm -rf "$stage"
+        done
+    displayName: "Publish 6 host packages to the host feed"
