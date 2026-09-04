@@ -1,0 +1,49 @@
+# Fast soundness gate: build, vet, format-check, and test the Go module on
+# every pull request and every push to main or a feature branch. This
+# pipeline needs nothing beyond the Go toolchain — no `az` feed access, no
+# cross-compilation, no embedded defaults. That's scripts/build-binaries.sh,
+# run only by azure-pipelines-release.yml.
+#
+# Adjust the branch patterns below to match this repo's actual branching
+# convention if it differs from main/feature/*.
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+
+pr:
+  branches:
+    include:
+      - main
+      - feature/*
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+
+  - task: GoTool@0
+    inputs:
+      version: "1.21"
+    displayName: "Install Go"
+
+  - script: go build ./...
+    displayName: "go build ./..."
+
+  - script: go vet ./...
+    displayName: "go vet ./..."
+
+  - script: |
+      set -eu
+      unformatted=$(gofmt -l .)
+      if [ -n "$unformatted" ]; then
+        echo "error: the following files are not gofmt-formatted:" >&2
+        echo "$unformatted" >&2
+        exit 1
+      fi
+    displayName: "gofmt check"
+
+  - script: go test ./...
+    displayName: "go test ./..."
