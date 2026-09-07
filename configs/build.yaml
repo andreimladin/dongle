@@ -1,9 +1,9 @@
-# build.yaml — the single source of truth for build-time inputs consumed by
-# scripts/build-binaries.sh (read via tools/buildconfig; see configs/README.md).
-# Human-edited. Not read at runtime, not embedded into the binary.
+# build.yaml — the single source of truth for the index coordinates and the
+# embedded plugin list. Build input; read at build time by tools/readconfig,
+# not at runtime.
 
 # TODO: replace with the real Azure DevOps index git repo URL/branch before
-# running scripts/build-binaries.sh for an actual release.
+# running scripts/fetch-embedded.sh for an actual release.
 index:
   url: https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO] # TODO: set the real index repo URL
   branch: main
@@ -13,12 +13,3 @@ index:
 embedded:
   - { name: tacho, version: 2.4.0 }
   - { name: bell, version: 1.1.0 }
-
-# Platforms scripts/build-binaries.sh cross-compiles a release for.
-targets:
-  - { os: darwin, arch: arm64 }
-  - { os: darwin, arch: amd64 }
-  - { os: linux, arch: amd64 }
-  - { os: linux, arch: arm64 }
-  - { os: windows, arch: amd64 }
-  - { os: windows, arch: arm64 }
