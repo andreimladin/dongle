@@ -2,7 +2,7 @@
 // refreshed on a TTL, mapping plugin name -> version -> Azure feed artifact.
 //
 // The index URL and branch are build-time build inputs — baked in via
-// -ldflags at build time (see cmd/root.go and configs/build.yaml) and
+// -ldflags at build time (see cmd/root.go and build.yaml) and
 // wired into this package once at startup via SetDefaults. DONGLE_INDEX_URL
 // and DONGLE_INDEX_BRANCH override them as dev escape hatches; normal users
 // never set them.

@@ -1,10 +1,11 @@
 // Command resolve-plugin is a build-time-only helper — NOT a dongle
-// subcommand and not part of the host↔plugin contract. scripts/fetch-embedded.sh
-// shells out to it, once per embedded plugin, to read that plugin's Azure
-// Artifacts feed coordinates straight out of a local index checkout, so the
-// fetch script never hardcodes anything about the feed or reimplements the
-// index's YAML parsing. It reuses internal/index's Manifest type and
-// internal/index.LoadFile — nothing about manifest parsing lives here.
+// subcommand and not part of the host↔plugin contract.
+// scripts/build.sh's fetch_embedded shells out to it, once per embedded
+// plugin, to read that plugin's Azure Artifacts feed coordinates straight
+// out of a local index checkout, so the build script never hardcodes
+// anything about the feed or reimplements the index's YAML parsing. It
+// reuses internal/index's Manifest type and internal/index.LoadFile —
+// nothing about manifest parsing lives here.
 //
 // Usage:
 //

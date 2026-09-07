@@ -1,17 +1,17 @@
 # Manual-only release pipeline: builds all six "batteries-included" host
-# binaries — one per job in a matrix, via scripts/fetch-embedded.sh +
-# scripts/build-binary.sh — and publishes each as its own Universal Package
-# to the host feed. Never triggered by a push or a PR — `trigger: none` /
-# `pr: none` below mean this only runs when queued by hand (or via the REST
+# binaries — one per job in a matrix, via scripts/build.sh's fetch_embedded
+# and build_binary — and publishes each as its own Universal Package to the
+# host feed. Never triggered by a push or a PR — `trigger: none` / `pr:
+# none` below mean this only runs when queued by hand (or via the REST
 # API), and only makes sense run against a release/X.Y.Z branch (the Guard
 # job below enforces that and derives DONGLE_VERSION from the branch name).
 #
-# All actual build logic lives in scripts/fetch-embedded.sh and
-# scripts/build-binary.sh — this pipeline only orchestrates (checkout, az
-# login, run the scripts, publish their output), so a future migration to
-# GitHub Actions is a thin wrapper rewrite, not a rewrite of the build
-# itself. Target platforms live only in this matrix, not duplicated into
-# repo config.
+# All actual build logic lives in scripts/build.sh — this pipeline only
+# orchestrates (checkout, az login, run the script, publish its output), so
+# a future migration to GitHub Actions is a thin wrapper rewrite, not a
+# rewrite of the build itself. Target platforms live only in this matrix,
+# not duplicated into repo config. Release always embeds — there is no
+# no-embed release path.
 trigger: none
 pr: none
 
@@ -22,8 +22,8 @@ variables:
   # TODO: set these to your real Azure Artifacts feed names and service
   # connection before running this pipeline. AZURE_SERVICE_CONNECTION must
   # have access to BOTH feeds: PLUGIN_FEED (to download the embedded
-  # defaults listed in configs/build.yaml) and HOST_FEED (to publish the
-  # six built host binaries).
+  # defaults listed in build.yaml) and HOST_FEED (to publish the six built
+  # host binaries).
   PLUGIN_FEED: "TODO-plugin-feed-name"
   HOST_FEED: "TODO-host-feed-name"
   AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
@@ -74,13 +74,13 @@ jobs:
           inlineScript: |
             set -eu
             az extension add --name azure-devops --only-show-errors
-            ./scripts/fetch-embedded.sh $(os) $(arch)
-        displayName: "fetch-embedded.sh $(os) $(arch)"
+            ./scripts/build.sh fetch_embedded $(os) $(arch)
+        displayName: "build.sh fetch_embedded $(os) $(arch)"
 
-      - script: ./scripts/build-binary.sh $(os) $(arch)
+      - script: ./scripts/build.sh build_binary $(os) $(arch)
         env:
           DONGLE_VERSION: $(DONGLE_VERSION)
-        displayName: "build-binary.sh $(os) $(arch)"
+        displayName: "build.sh build_binary $(os) $(arch)"
 
       - task: AzureCLI@2
         inputs:

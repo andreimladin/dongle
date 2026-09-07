@@ -3,7 +3,7 @@
 # not at runtime.
 
 # TODO: replace with the real Azure DevOps index git repo URL/branch before
-# running scripts/fetch-embedded.sh for an actual release.
+# running scripts/build.sh for an actual release.
 index:
   url: https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO] # TODO: set the real index repo URL
   branch: main

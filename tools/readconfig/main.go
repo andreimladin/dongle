@@ -1,11 +1,10 @@
 // Command readconfig is a build-time-only helper — NOT a dongle subcommand
-// and not part of the host↔plugin contract. scripts/fetch-embedded.sh and
-// scripts/build-binary.sh shell out to it to read configs/build.yaml (the
-// single source of truth for the index coordinates and the embedded plugin
-// list) and print it back out in whatever plain, shell-friendly shape the
-// caller needs — so the scripts themselves hardcode none of it. It reuses
-// gopkg.in/yaml.v3 (already a dependency, via internal/index) rather than
-// pulling in a YAML CLI tool.
+// and not part of the host↔plugin contract. scripts/build.sh shells out to
+// it to read build.yaml (the single source of truth for the index
+// coordinates and the embedded plugin list) and print it back out in
+// whatever plain, shell-friendly shape the caller needs — so the script
+// itself hardcodes none of it. It reuses gopkg.in/yaml.v3 (already a
+// dependency, via internal/index) rather than pulling in a YAML CLI tool.
 //
 // Usage:
 //
@@ -26,7 +25,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// buildConfig mirrors configs/build.yaml's shape.
+// buildConfig mirrors build.yaml's shape.
 type buildConfig struct {
 	Index struct {
 		URL    string `yaml:"url"`
@@ -46,7 +45,7 @@ func run(args []string) int {
 	fs := flag.NewFlagSet("readconfig", flag.ContinueOnError)
 	index := fs.Bool("index", false, "print INDEX_URL/INDEX_BRANCH as shell assignments")
 	embedded := fs.Bool("embedded", false, "print one name:version line per embedded plugin")
-	configPath := fs.String("file", "configs/build.yaml", "path to build.yaml")
+	configPath := fs.String("file", "build.yaml", "path to build.yaml")
 	fs.Usage = printUsage
 	if err := fs.Parse(args); err != nil {
 		return 2

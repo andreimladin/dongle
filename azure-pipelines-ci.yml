@@ -1,8 +1,8 @@
 # Fast soundness gate: build, vet, format-check, and test the Go module on
 # every pull request and every push to main or a feature branch. This
 # pipeline needs nothing beyond the Go toolchain — no `az` feed access, no
-# cross-compilation, no embedded defaults. That's
-# scripts/fetch-embedded.sh + scripts/build-binary.sh, run only by
+# cross-compilation, no embedded defaults. That's scripts/build.sh (always
+# embeds; there is no no-embed release path), run only by
 # azure-pipelines-release.yml.
 #
 # Adjust the branch patterns below to match this repo's actual branching
