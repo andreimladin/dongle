@@ -193,7 +193,7 @@ func Load(name string) (*Manifest, error) {
 
 // LoadFile reads and parses a manifest from an explicit file path, bypassing
 // the cache (cacheDir/EnsureFresh/Refresh) entirely. Purely additive next to
-// Load: used by build-time tools (tools/resolve) that need to read
+// Load: used by build-time tools (tools/resolve-plugin) that need to read
 // plugins/<name>.yaml out of an arbitrary index checkout — e.g. one just
 // cloned fresh into a temp dir — without touching the managed cache.
 func LoadFile(path string) (*Manifest, error) {

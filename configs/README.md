@@ -1,1 +1,1 @@
-Build inputs consumed by scripts/build-binaries.sh; not read at runtime.
+Build inputs consumed by scripts/fetch-embedded.sh and scripts/build-binary.sh; not read at runtime.
