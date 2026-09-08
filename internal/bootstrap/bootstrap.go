@@ -1,11 +1,11 @@
 //go:build embed
 
 // Package bootstrap unpacks the plugins baked into a "batteries-included"
-// release binary (see build.yaml and scripts/build.sh) into the normal
-// plugin store on first run. Everything the //go:embed directive needs —
-// the directive itself and the staged embedded/ payload — lives here
-// because go:embed paths are relative to the source file and can't reach
-// outside this package with "../".
+// release binary (see configs/build.yaml and scripts/build.sh) into the
+// normal plugin store on first run. Everything the //go:embed directive
+// needs — the directive itself and the staged embedded/ payload — lives
+// here because go:embed paths are relative to the source file and can't
+// reach outside this package with "../".
 package bootstrap
 
 import (
@@ -33,7 +33,7 @@ import (
 var embeddedFS embed.FS
 
 // embeddedDefault is one entry of embedded/manifest.json, written by
-// scripts/build.sh's fetch_embedded from build.yaml.
+// scripts/build.sh's fetch_embedded from configs/build.yaml.
 type embeddedDefault struct {
 	Name       string          `json:"name"`
 	Version    string          `json:"version"`
@@ -43,10 +43,10 @@ type embeddedDefault struct {
 }
 
 // InstallDefaults unpacks the plugins baked into this binary (see
-// build.yaml and scripts/build.sh) into the plugin store on first run only,
-// then records that in state so it never runs again. It is a no-op when
-// nothing was staged — either a plain `go build -tags embed` with an empty
-// internal/bootstrap/embedded, or a run after the bootstrap
+// configs/build.yaml and scripts/build.sh) into the plugin store on first
+// run only, then records that in state so it never runs again. It is a
+// no-op when nothing was staged — either a plain `go build -tags embed`
+// with an empty internal/bootstrap/embedded, or a run after the bootstrap
 // flag is already set.
 func InstallDefaults() {
 	manifestBytes, err := fs.ReadFile(embeddedFS, "embedded/manifest.json")

@@ -30,7 +30,7 @@ sh demo.sh          # local-dir install lifecycle, end to end
 | command | binary | plugins |
 |---|---|---|
 | `go build ./cmd` | dev binary, `hostVersion` defaults to `"dev"` | none — install them the normal way |
-| `./scripts/build.sh build_target <os> <arch>` | `dist/dongle-<os>-<arch>` for that one platform | embedded defaults from `build.yaml` |
+| `./scripts/build.sh build_target <os> <arch>` | `dist/dongle-<os>-<arch>` for that one platform | embedded defaults from `configs/build.yaml` |
 
 `go build ./cmd` is always available and requires nothing beyond the Go
 toolchain — embedding is entirely opt-in and behind a build tag, so a plain
@@ -53,7 +53,7 @@ run in CI on every PR:
 Feed-coordinate resolution goes through `tools/resolve-plugin` (see below)
 rather than a separate YAML tool.
 
-### Build inputs are injected at build time (`build.yaml`)
+### Build inputs are injected at build time (`configs/build.yaml`)
 
 `hostVersion`, the index URL, and the index branch are not hardcoded in Go —
 they're plain vars in `cmd/root.go` (`protocol`, the host↔plugin contract
@@ -64,18 +64,18 @@ version, stays a `const`), stamped in at build time via `-ldflags -X`:
   `DONGLE_INDEX_URL` (and optionally `DONGLE_INDEX_BRANCH`) at runtime to use
   `dongle index`/`dongle plugin` commands locally.
 - `scripts/build.sh`'s `build_binary` stamps all three, with the index
-  url/branch read from `build.yaml` (via `tools/readconfig` — see "Embedded
-  default plugins" below) — the script itself hardcodes none of it.
+  url/branch read from `configs/build.yaml` (via `tools/readconfig` — see
+  "Embedded default plugins" below) — the script itself hardcodes none of it.
   `hostVersion` still comes from outside the script — the pipeline's
   `DONGLE_VERSION` — and is **required** in CI (detected via
   `CI`/`TF_BUILD`/`GITHUB_ACTIONS`); locally it falls back to `git describe`,
   then `"dev"`.
 
-`build.yaml` (repo root) is human-edited and consumed only by
-`scripts/build.sh` — nothing in it is read at runtime or embedded into the
-binary. Target platforms are **not** in `build.yaml` — they live only in
-`azure-pipelines-release.yml`'s job matrix (or whatever `<os> <arch>` pair
-you pass the script by hand).
+`configs/build.yaml` (see `configs/README.md`) is human-edited and consumed
+only by `scripts/build.sh` — nothing in `configs/` is read at runtime or
+embedded into the binary. Target platforms are **not** in
+`configs/build.yaml` — they live only in `azure-pipelines-release.yml`'s
+job matrix (or whatever `<os> <arch>` pair you pass the script by hand).
 
 ### Pipelines
 
@@ -88,8 +88,8 @@ you pass the script by hand).
   run against a `release/X.Y.Z` branch, and derives `DONGLE_VERSION` from
   the branch name. A `BuildAndPublish` job then runs as a **matrix over all
   six target platforms**; each leg logs in via an Azure service connection
-  with access to both the plugin feed (to download `build.yaml`'s embedded
-  defaults) and a separate host feed, runs `./scripts/build.sh
+  with access to both the plugin feed (to download `configs/build.yaml`'s
+  embedded defaults) and a separate host feed, runs `./scripts/build.sh
   fetch_embedded $(os) $(arch)` then `./scripts/build.sh build_binary $(os)
   $(arch)`, and publishes that one binary as its own Universal Package to
   the host feed. Feed names and the service connection are parameterized at
@@ -102,9 +102,9 @@ not a rewrite of the build itself.
 
 ### Embedded default plugins (`embed` build tag)
 
-`build.yaml` (repo root) is the single, reviewable, diffable source of truth
-for which plugins (at which exact versions) ship baked into a release
-build, and which index they're resolved against:
+`configs/build.yaml` is the single, reviewable, diffable source of truth for
+which plugins (at which exact versions) ship baked into a release build,
+and which index they're resolved against:
 
 ```yaml
 index:
@@ -207,10 +207,11 @@ azure-pipelines-ci.yml       PR/push soundness gate: build, vet, gofmt, test
 azure-pipelines-release.yml  manual-only: Guard job (release/X.Y.Z + version)
                         then a BuildAndPublish job matrixed over the six
                         target platforms, publishing to the host feed
-build.yaml              build input consumed by scripts/build.sh (index
-                        url/branch, embedded plugins — no target platforms,
-                        those live in the release pipeline's matrix) —
-                        human-edited, not read at runtime, not embedded
+configs/                build input consumed by scripts/build.sh
+                        (build.yaml: index url/branch, embedded plugins —
+                        no target platforms, those live in the release
+                        pipeline's matrix) — human-edited, not read at
+                        runtime, not embedded
 scripts/build.sh        the one release build script: fetch_embedded,
                         build_binary, build_target, dispatched by first arg
                         — see "Embedded default plugins" below
@@ -230,8 +231,8 @@ internal/index/        embedded git catalog: clone/TTL-pull cache, lookups
 tools/resolve-plugin/   build-time-only helper: manifest -> feed coordinates
                         for one plugin/platform (not a dongle subcommand) —
                         see "Embedded default plugins" above
-tools/readconfig/       build-time-only helper: reads build.yaml, prints the
-                        index coords or embedded-plugin list for
+tools/readconfig/       build-time-only helper: reads configs/build.yaml,
+                        prints the index coords or embedded-plugin list for
                         scripts/build.sh (not a dongle subcommand)
 examples/dongle-deploy/  sample cobra plugin (its own module)
 examples/index/          sample index-repo manifest (Azure feed coordinates)
@@ -280,9 +281,9 @@ set `feed.project` in the index manifest — `downloadArtifact` passes `--projec
 and `--scope project` to `az artifacts universal download` when it's set.
 Org-scoped feeds omit `feed.project` entirely.
 
-Set the index URL/branch in `build.yaml`'s `index:` section — it's injected
-into the binary at build time (see "Build inputs are injected at build
-time" above). `DONGLE_INDEX_URL` overrides it for dev.
+Set the index URL/branch in `configs/build.yaml`'s `index:` section — it's
+injected into the binary at build time (see "Build inputs are injected at
+build time" above). `DONGLE_INDEX_URL` overrides it for dev.
 
 ## Index access
 
@@ -303,15 +304,15 @@ One-time setup:
 
 Dev overrides: `DONGLE_INDEX_URL` points at a different index repo,
 `DONGLE_INDEX_BRANCH` pins a different branch (both default to the values
-injected at build time from `build.yaml`'s `index:` section; a plain `go
-build ./cmd` has no index URL baked in at all, so one of these overrides is
-required to use `dongle index`/`dongle plugin` commands).
+injected at build time from `configs/build.yaml`'s `index:` section; a
+plain `go build ./cmd` has no index URL baked in at all, so one of these
+overrides is required to use `dongle index`/`dongle plugin` commands).
 
 ## Before you publish this repo
 
 - Replace `andreimladin` with your GitHub/module path everywhere:
   `grep -rl andreimladin . | xargs sed -i 's/andreimladin/<you>/g'`
-- Set `index.url` and `index.branch` in `build.yaml`.
+- Set `index.url` and `index.branch` in `configs/build.yaml`.
 - Fill in the `LICENSE` year/name.
 
 ## License

@@ -14,8 +14,8 @@
 # platform into internal/bootstrap/embedded/, ready for build_binary to
 # `-tags embed` into a binary. Needs `az` credentials for the plugin feed
 # (see azure-pipelines-release.yml, which runs this once per matrix leg).
-# build.yaml (repo root; see its own header comment) is the single source
-# of truth for the index coordinates and the embedded plugin list — this
+# configs/build.yaml (see its own header comment) is the single source of
+# truth for the index coordinates and the embedded plugin list — this
 # script hardcodes neither: it shells out to tools/readconfig for both. It
 # clones the plugin index fresh into a temp dir every run, using the same
 # INDEX_URL/INDEX_BRANCH that build_binary also bakes into the binary via
@@ -36,9 +36,9 @@
 # touches `az` or the plugin index. hostVersion comes from outside this
 # script: the pipeline sets DONGLE_VERSION (required in CI); locally it
 # falls back to `git describe`, then "dev". Index url/branch come from
-# build.yaml (via tools/readconfig) and are baked in via -ldflags alongside
-# hostVersion, so the resulting binary matches the index coordinates its
-# embedded defaults were actually resolved against.
+# configs/build.yaml (via tools/readconfig) and are baked in via -ldflags
+# alongside hostVersion, so the resulting binary matches the index
+# coordinates its embedded defaults were actually resolved against.
 #
 # build_target is pure composition (fetch_embedded then build_binary) for a
 # local one-shot build; build_binary itself never calls fetch_embedded.
