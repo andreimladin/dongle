@@ -9,6 +9,7 @@
 package index
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -206,6 +207,27 @@ func LoadFile(path string) (*Manifest, error) {
 	}
 	var m Manifest
 	if err := yaml.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("invalid manifest at %s: %w", path, err)
+	}
+	return &m, nil
+}
+
+// LoadFileStrict is LoadFile but rejects unknown YAML fields instead of
+// silently ignoring them. Purely additive next to LoadFile/Load: used only
+// by tools/validate-manifest, which needs to catch manifest typos (e.g. a
+// misspelled field name) that would otherwise pass through unnoticed.
+func LoadFileStrict(path string) (*Manifest, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var m Manifest
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil {
 		return nil, fmt.Errorf("invalid manifest at %s: %w", path, err)
 	}
 	return &m, nil

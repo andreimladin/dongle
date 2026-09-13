@@ -1,0 +1,106 @@
+# Builds tools/validate-manifest and publishes it to the feed as a versioned
+# Universal Package, so the index repo's own PR pipeline
+# (azure-pipelines-validate.yml, in the index repo) can download a pinned
+# build of it instead of vendoring or `go run`-ing this repo's source.
+#
+# Deliberately separate from azure-pipelines-release.yml: this ships a
+# small dev tool, not a "batteries-included" host binary, and it only needs
+# building for the platforms the tool actually runs on — CI runners
+# (linux/amd64) and, optionally, plugin authors' local machines
+# (darwin/arm64) — NOT all six host release targets.
+#
+# Uses the same DONGLE_VERSION/branch-derivation scheme as
+# azure-pipelines-release.yml's Guard job, mirrored here against a parallel
+# `tooling/X.Y.Z` branch convention so the two publish flows stay
+# recognizably alike. Adjust the branch pattern below if this repo's actual
+# branching convention differs.
+trigger:
+  branches:
+    include:
+      - tooling/*
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # TODO: set these to your real Azure Artifacts feed name and service
+  # connection before running this pipeline. This can be the same feed
+  # plugins are published to, or a separate one — either way the service
+  # connection only needs WRITE on this feed (no plugin feed access
+  # required, unlike azure-pipelines-release.yml).
+  TOOLING_FEED: "TODO-tooling-feed-name"
+  AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
+
+jobs:
+  - job: Guard
+    displayName: "Guard: verify tooling/X.Y.Z branch, derive DONGLE_VERSION"
+    steps:
+      - script: |
+          set -eu
+          branch="$(Build.SourceBranch)"
+          if [[ ! "$branch" =~ ^refs/heads/tooling/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: this pipeline must be run on a tooling/X.Y.Z branch (got $branch)" >&2
+            exit 1
+          fi
+          version="${branch#refs/heads/tooling/}"
+          echo "publishing validate-manifest $version"
+          echo "##vso[task.setvariable variable=DONGLE_VERSION;isOutput=true]$version"
+        name: setver
+        displayName: "Guard branch, derive version"
+
+  - job: BuildAndPublish
+    dependsOn: Guard
+    displayName: "Build and publish validate-manifest"
+    variables:
+      DONGLE_VERSION: $[ dependencies.Guard.outputs['setver.DONGLE_VERSION'] ]
+    strategy:
+      matrix:
+        linux_amd64: { os: linux, arch: amd64 }
+        darwin_arm64: { os: darwin, arch: arm64 }
+    steps:
+      - checkout: self
+
+      - task: GoTool@0
+        inputs:
+          version: "1.21"
+        displayName: "Install Go"
+
+      - script: |
+          set -eu
+          out="dist/validate-manifest-$(os)-$(arch)"
+          echo "building ${out} (version $(DONGLE_VERSION))..."
+          GOOS="$(os)" GOARCH="$(arch)" go build -ldflags "-s -w" -o "$out" ./tools/validate-manifest
+          echo "done: ${out}"
+        displayName: "go build tools/validate-manifest for $(os)/$(arch)"
+
+      - task: AzureCLI@2
+        inputs:
+          azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -eu
+            az extension add --name azure-devops --only-show-errors
+
+            bin="dist/validate-manifest-$(os)-$(arch)"
+            if [ ! -f "$bin" ]; then
+              echo "error: expected build output $bin not found" >&2
+              exit 1
+            fi
+
+            stage=$(mktemp -d)
+            cp "$bin" "$stage/"
+
+            echo "publishing validate-manifest ($(os)/$(arch)) @ $(DONGLE_VERSION)..."
+            az artifacts universal publish \
+              --organization "$(System.CollectionUri)" \
+              --feed "$(TOOLING_FEED)" \
+              --name "validate-manifest-$(os)-$(arch)" \
+              --version "$(DONGLE_VERSION)" \
+              --path "$stage" \
+              --description "dongle manifest validator $(DONGLE_VERSION) ($(os)/$(arch))"
+
+            rm -rf "$stage"
+        displayName: "Publish validate-manifest-$(os)-$(arch) to the tooling feed"
