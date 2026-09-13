@@ -1,0 +1,15 @@
+# build.yaml — the single source of truth for the index coordinates and the
+# embedded plugin list. Build input; read at build time by tools/readconfig,
+# not at runtime.
+
+# TODO: replace with the real Azure DevOps index git repo URL/branch before
+# running scripts/build.sh for an actual release.
+index:
+  url: https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO] # TODO: set the real index repo URL
+  branch: main
+
+# Plugins embedded into a release build (requires `-tags embed`; see
+# internal/bootstrap). Reviewable, diffable list of exact versions to bake in.
+embedded:
+  - { name: tacho, version: 2.4.0 }
+  - { name: bell, version: 1.1.0 }

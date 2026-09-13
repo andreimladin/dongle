@@ -1,0 +1,116 @@
+# Manual-only release pipeline: builds all six "batteries-included" host
+# binaries — one per job in a matrix, via scripts/build.sh's fetch_embedded
+# and build_binary — and publishes each as its own Universal Package to the
+# host feed. Never triggered by a push or a PR — `trigger: none` / `pr:
+# none` below mean this only runs when queued by hand (or via the REST
+# API), and only makes sense run against a release/X.Y.Z branch (the Guard
+# job below enforces that and derives DONGLE_VERSION from the branch name).
+#
+# All actual build logic lives in scripts/build.sh — this pipeline only
+# orchestrates (checkout, az login, run the script, publish its output), so
+# a future migration to GitHub Actions is a thin wrapper rewrite, not a
+# rewrite of the build itself. Target platforms live only in this matrix,
+# not duplicated into repo config. Release always embeds — there is no
+# no-embed release path.
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # TODO: set these to your real Azure Artifacts feed names and service
+  # connection before running this pipeline. AZURE_SERVICE_CONNECTION must
+  # have access to BOTH feeds: PLUGIN_FEED (to download the embedded
+  # defaults listed in configs/build.yaml) and HOST_FEED (to publish the six built
+  # host binaries).
+  PLUGIN_FEED: "TODO-plugin-feed-name"
+  HOST_FEED: "TODO-host-feed-name"
+  AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
+
+jobs:
+  - job: Guard
+    displayName: "Guard: verify release/X.Y.Z branch, derive DONGLE_VERSION"
+    steps:
+      - script: |
+          set -eu
+          branch="$(Build.SourceBranch)"
+          if [[ ! "$branch" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: this pipeline must be run on a release/X.Y.Z branch (got $branch)" >&2
+            exit 1
+          fi
+          version="${branch#refs/heads/release/}"
+          echo "releasing version $version"
+          echo "##vso[task.setvariable variable=DONGLE_VERSION;isOutput=true]$version"
+        name: setver
+        displayName: "Guard branch, derive version"
+
+  - job: BuildAndPublish
+    dependsOn: Guard
+    displayName: "Build and publish"
+    variables:
+      DONGLE_VERSION: $[ dependencies.Guard.outputs['setver.DONGLE_VERSION'] ]
+    strategy:
+      matrix:
+        darwin_arm64: { os: darwin, arch: arm64 }
+        darwin_amd64: { os: darwin, arch: amd64 }
+        linux_amd64: { os: linux, arch: amd64 }
+        linux_arm64: { os: linux, arch: arm64 }
+        windows_amd64: { os: windows, arch: amd64 }
+        windows_arm64: { os: windows, arch: arm64 }
+    steps:
+      - checkout: self
+
+      - task: GoTool@0
+        inputs:
+          version: "1.21"
+        displayName: "Install Go"
+
+      - task: AzureCLI@2
+        inputs:
+          azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -eu
+            az extension add --name azure-devops --only-show-errors
+            ./scripts/build.sh fetch_embedded $(os) $(arch)
+        displayName: "build.sh fetch_embedded $(os) $(arch)"
+
+      - script: ./scripts/build.sh build_binary $(os) $(arch)
+        env:
+          DONGLE_VERSION: $(DONGLE_VERSION)
+        displayName: "build.sh build_binary $(os) $(arch)"
+
+      - task: AzureCLI@2
+        inputs:
+          azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -eu
+            az extension add --name azure-devops --only-show-errors
+
+            bin="dist/dongle-$(os)-$(arch)"
+            if [ "$(os)" = "windows" ]; then
+              bin="${bin}.exe"
+            fi
+            if [ ! -f "$bin" ]; then
+              echo "error: expected build output $bin not found" >&2
+              exit 1
+            fi
+
+            stage=$(mktemp -d)
+            cp "$bin" "$stage/"
+
+            echo "publishing dongle-$(os)-$(arch)@$(DONGLE_VERSION)..."
+            az artifacts universal publish \
+              --organization "$(System.CollectionUri)" \
+              --feed "$(HOST_FEED)" \
+              --name "dongle-$(os)-$(arch)" \
+              --version "$(DONGLE_VERSION)" \
+              --path "$stage" \
+              --description "dongle host release $(DONGLE_VERSION) ($(os)/$(arch))"
+
+            rm -rf "$stage"
+        displayName: "Publish dongle-$(os)-$(arch) to the host feed"
