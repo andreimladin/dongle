@@ -19,15 +19,31 @@
 #     drift in manifests nobody touched — e.g. a package referenced by an
 #     old manifest was deleted from the feed after it was last validated.
 #
+# Two different auth paths are in play here, for two different az command
+# groups:
+#   - Downloading validate-manifest itself, and the new-plugin PR-comment
+#     step, use the AZURE_SERVICE_CONNECTION below (an AzureCLI@2-driven
+#     `az login`).
+#   - The actual "Validate manifests" step is a plain script step, and
+#     authenticates via AZURE_DEVOPS_EXT_PAT (System.AccessToken) instead —
+#     that's what validate-manifest's package-existence check needs, since
+#     it shells out to `az artifacts universal download`, which reads
+#     AZURE_DEVOPS_EXT_PAT directly and does NOT accept an `az login`
+#     session from a wrapping AzureCLI@2 task the way `az rest` would.
+#
 # TODO: fill in TOOLING_FEED, VALIDATE_MANIFEST_VERSION, and
-# AZURE_SERVICE_CONNECTION below. The service connection needs feed READ on
-# TOOLING_FEED (to download the validator) and on every feed any
-# plugins/*.yaml in this repo names (validate-manifest itself needs READ on
-# those to run its package-existence checks) — no write access needed for
-# validation itself. If you want the new-plugin PR comment step below to
-# work, it also needs "Pull Request Threads" write scope; if you'd rather
-# not grant that, delete that step — the log warning alone still surfaces
-# new plugins to reviewers.
+# AZURE_SERVICE_CONNECTION below. The service connection only needs feed
+# READ on TOOLING_FEED (to download the validator) — it is NOT used for
+# package-existence checks against plugin feeds; see the auth-path note
+# above and the "Validate manifests" step's own comment for that. If you
+# want the new-plugin PR comment step below to work, the service
+# connection also needs "Pull Request Threads" write scope; if you'd
+# rather not grant that, delete that step — the log warning alone still
+# surfaces new plugins to reviewers.
+#
+# Separately: the build service identity behind System.AccessToken (used
+# by the "Validate manifests" step) must have feed READ on every feed any
+# plugins/*.yaml in this repo names — see that step's own comment.
 
 trigger: none # this pipeline runs on PRs (below) and on the schedule (below), never on a bare push to main.
 
@@ -59,9 +75,9 @@ variables:
   # deliberately (its own small PR) when you want index PRs to start being
   # checked by a newer validator — never "latest".
   VALIDATE_MANIFEST_VERSION: "TODO-pin-a-version"
-  # TODO: service connection with feed READ (see note above) — no write
-  # access needed anywhere for validation; PR-comment scope is separate,
-  # see the note above.
+  # TODO: service connection with feed READ on TOOLING_FEED only (see the
+  # auth-path note above) — plus "Pull Request Threads" write if you keep
+  # the new-plugin PR-comment step.
   AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
 
 steps:
@@ -139,35 +155,48 @@ steps:
             || echo "warning: could not post PR comment (check service connection scope) — the log warning above still stands"
         done
 
-  - task: AzureCLI@2
+  - script: |
+      set -euo pipefail
+
+      if [ "$(Build.Reason)" = "PullRequest" ]; then
+        echo "== PR mode: validating changed manifests =="
+
+        git fetch origin "$(System.PullRequest.TargetBranch)" --depth=1
+        target="origin/$(System.PullRequest.TargetBranch)"
+
+        mapfile -t changed < <(git diff --name-only --diff-filter=ACMR "$target"...HEAD -- 'plugins/*.yaml')
+        if [ ${#changed[@]} -eq 0 ]; then
+          echo "no plugins/*.yaml changes in this PR — nothing to validate"
+          exit 0
+        fi
+
+        echo "changed manifests:"
+        printf '  %s\n' "${changed[@]}"
+        "$(VALIDATOR_BIN)" "${changed[@]}"
+      else
+        echo "== full scan mode: validating all plugins/*.yaml =="
+        "$(VALIDATOR_BIN)" --dir plugins/
+      fi
     displayName: "Validate manifests"
     name: validate
-    inputs:
-      azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
-      scriptType: bash
-      scriptLocation: inlineScript
-      # validate-manifest itself needs an az login session for its
-      # package-existence checks (layer b), which is why this step also
-      # runs inside an AzureCLI@2 task rather than a plain `script:` step.
-      inlineScript: |
-        set -euo pipefail
-
-        if [ "$(Build.Reason)" = "PullRequest" ]; then
-          echo "== PR mode: validating changed manifests =="
-
-          git fetch origin "$(System.PullRequest.TargetBranch)" --depth=1
-          target="origin/$(System.PullRequest.TargetBranch)"
-
-          mapfile -t changed < <(git diff --name-only --diff-filter=ACMR "$target"...HEAD -- 'plugins/*.yaml')
-          if [ ${#changed[@]} -eq 0 ]; then
-            echo "no plugins/*.yaml changes in this PR — nothing to validate"
-            exit 0
-          fi
-
-          echo "changed manifests:"
-          printf '  %s\n' "${changed[@]}"
-          "$(VALIDATOR_BIN)" "${changed[@]}"
-        else
-          echo "== full scan mode: validating all plugins/*.yaml =="
-          "$(VALIDATOR_BIN)" --dir plugins/
-        fi
+    env:
+      # Relies on the azure-devops CLI extension already being installed
+      # by the "Download validate-manifest from the feed" step above (it
+      # persists on the agent for the rest of the job) — this step does
+      # not re-run `az extension add` itself, since doing so a second time
+      # errors under `set -e` once the extension is already present.
+      #
+      # validate-manifest's package-existence check shells out to
+      # `az artifacts universal download` (not `az rest` — that command
+      # does NOT pick up AZURE_DEVOPS_EXT_PAT and fails 401/403 here even
+      # with a valid token). AZURE_DEVOPS_EXT_PAT authenticates `az
+      # artifacts` directly from this plain script step, with no `az
+      # login` or service connection required — System.AccessToken is the
+      # pipeline job's own build-identity OAuth token.
+      #
+      # TODO: the build service identity this token represents must have
+      # READ access to every feed any plugins/*.yaml in this repo names —
+      # grant it under Project Settings -> that feed -> Permissions
+      # (Reader). Without it, az artifacts will 401/403 even though a
+      # valid token is present.
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)

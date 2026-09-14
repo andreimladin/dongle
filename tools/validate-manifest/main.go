@@ -21,13 +21,16 @@
 //     are checked, coverage/completeness is not this tool's job.
 //  2. Existence — for each declared platform, confirm that platform's
 //     package actually exists at the manifest's version in the feed the
-//     manifest itself names (not a global/configured feed). This is a
-//     metadata-only check (see existence.go) — it never downloads package
-//     content.
+//     manifest itself names (not a global/configured feed). See
+//     existence.go: this shells out to `az artifacts universal download`
+//     into a throwaway temp dir, same as dongle's own installer — a
+//     successful download is the existence proof, and its content is
+//     discarded immediately.
 //
-// Existence checks require the Azure CLI (az) to be present and already
-// logged in; validate-manifest does not manage credentials for it, same as
-// the main dongle CLI's install path.
+// Existence checks require the Azure CLI (az) to be present on PATH and
+// already authenticated — either an existing `az login` session, or (as in
+// CI) an AZURE_DEVOPS_EXT_PAT in the environment, which `az artifacts`
+// picks up on its own. validate-manifest never calls `az login` itself.
 //
 // Exit codes: 0 all manifests valid, 1 one or more manifests failed
 // validation (or existence couldn't be confirmed), 2 usage error.
@@ -86,13 +89,15 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "warning: az CLI not found on PATH — package-existence checks will fail closed for every manifest")
 	}
 
-	failed := false
+	passed := 0
 	for _, f := range files {
-		if !validateFile(f, azAvailable) {
-			failed = true
+		if validateFile(f, azAvailable) {
+			passed++
 		}
 	}
-	if failed {
+
+	fmt.Printf("\n%d/%d manifests passed\n", passed, len(files))
+	if passed != len(files) {
 		return 1
 	}
 	return 0
@@ -117,29 +122,33 @@ func manifestsInDir(dir string) ([]string, error) {
 }
 
 // validateFile runs both layers for one manifest file and prints a
-// per-file, per-error report. It returns false if the manifest failed
-// either layer.
+// per-file, per-check report — correctness as a whole, then one pass/fail
+// line per declared platform's package. It returns false if the manifest
+// failed either layer.
 func validateFile(path string, azAvailable bool) bool {
 	fmt.Printf("== %s ==\n", path)
 
 	m, errs := checkCorrectness(path)
 	if len(errs) > 0 {
+		fmt.Println("  correctness: FAIL")
 		for _, e := range errs {
-			fmt.Printf("  error: %s\n", e)
+			fmt.Printf("    error: %s\n", e)
 		}
 		return false
 	}
+	fmt.Println("  correctness: OK")
 
-	existErrs := checkExistence(m, azAvailable)
-	if len(existErrs) > 0 {
-		for _, e := range existErrs {
-			fmt.Printf("  error: %s\n", e)
+	results := checkExistence(m, azAvailable)
+	ok := true
+	for _, r := range results {
+		if r.err != nil {
+			ok = false
+			fmt.Printf("  %s/%s %s@%s: FAIL — %v\n", r.os, r.arch, r.pkg, r.version, r.err)
+			continue
 		}
-		return false
+		fmt.Printf("  %s/%s %s@%s: OK\n", r.os, r.arch, r.pkg, r.version)
 	}
-
-	fmt.Println("  OK")
-	return true
+	return ok
 }
 
 var semverPattern = regexp.MustCompile(
@@ -209,30 +218,31 @@ func checkCorrectness(path string) (m *index.Manifest, errs []string) {
 	return m, errs
 }
 
+// packageCheck is one platform's existence-check result.
+type packageCheck struct {
+	os, arch, pkg, version string
+	err                    error // nil means the package exists and is downloadable
+}
+
 // checkExistence is layer (b): for each declared platform, confirm that
 // platform's package exists at m.Version in the feed m itself names. Only
 // called once checkCorrectness has passed, so m's feed/platform fields are
-// known to be populated.
-func checkExistence(m *index.Manifest, azAvailable bool) []string {
-	if !azAvailable {
-		return []string{"az CLI not found; cannot verify package existence (see: az extension add --name azure-devops)"}
-	}
-
+// known to be populated. Always returns one result per platform (pass or
+// fail) so callers can report a complete per-package breakdown.
+func checkExistence(m *index.Manifest, azAvailable bool) []packageCheck {
 	version := strings.TrimPrefix(m.Version, "v") // upack versions are bare semver
-	var errs []string
+	results := make([]packageCheck, 0, len(m.Platforms))
 	for _, p := range m.Platforms {
-		ok, err := packageExists(m.Feed, p.Package, version)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("platform %s/%s: checking package %q@%s: %v",
-				p.Selector.OS, p.Selector.Arch, p.Package, version, err))
-			continue
+		r := packageCheck{os: p.Selector.OS, arch: p.Selector.Arch, pkg: p.Package, version: version}
+		switch {
+		case !azAvailable:
+			r.err = fmt.Errorf("az CLI not found; cannot verify package existence (see: az extension add --name azure-devops)")
+		default:
+			r.err = packageExists(m.Feed, p.Package, version)
 		}
-		if !ok {
-			errs = append(errs, fmt.Sprintf("platform %s/%s: package %q@%s not found in feed %q (org %s)",
-				p.Selector.OS, p.Selector.Arch, p.Package, version, m.Feed.Feed, m.Feed.Organization))
-		}
+		results = append(results, r)
 	}
-	return errs
+	return results
 }
 
 func azOnPath() bool {
