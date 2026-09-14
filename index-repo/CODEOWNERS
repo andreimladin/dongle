@@ -1,0 +1,41 @@
+# CODEOWNERS for the dongle plugin index.
+#
+# Authored now as documentation of per-plugin ownership; not natively
+# enforced yet. This repo is on Azure DevOps today, which doesn't read
+# CODEOWNERS — in the interim, mirror the rules below as Azure DevOps
+# branch policies (Required reviewers, scoped by path) if you want them
+# enforced rather than just documented. Once this repo moves to GitHub,
+# turning on branch protection + "Require review from Code Owners" makes
+# this file itself enforced automatically, with no other changes needed.
+#
+# Governance (see CONTRIBUTING.md and docs/publishing-plugins.md for the
+# full picture):
+#   - Per-plugin owners approve changes to their own plugins/<name>.yaml —
+#     version bumps, new platforms, feed coordinate changes.
+#   - NEW plugin manifests need central/platform-team review in addition
+#     to (or instead of, if there's no owner yet) a per-plugin owner. The
+#     PR pipeline (azure-pipelines-validate.yml) flags any plugins/*.yaml
+#     that didn't exist on the target branch so reviewers know to apply
+#     this.
+#
+# Ownership is resolved top-to-bottom, LAST match wins (standard
+# CODEOWNERS semantics) — so put more specific rules below more general
+# ones, as done here.
+
+# TODO: replace with your platform/central team's real handle(s) (a GitHub
+# team slug once this repo is on GitHub; a distro list or Azure DevOps
+# group in the meantime). Owns the repo root and anything not matched by a
+# more specific rule below — pipeline config, docs, CODEOWNERS itself, and
+# any brand-new plugins/*.yaml that doesn't have a per-plugin line yet.
+*                                    @TODO-platform-team
+
+# --- Per-plugin ownership ---------------------------------------------------
+#
+# One line per plugin manifest. Add a line here as part of a new plugin's
+# onboarding review, once its plugins/<name>.yaml has landed and it has a
+# real owning team.
+#
+# TODO: replace the example line below with your real plugins/owning teams.
+plugins/deploy.yaml                 @TODO-platform-team @TODO-deploy-team
+
+# plugins/<name>.yaml               @TODO-owning-team

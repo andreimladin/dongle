@@ -1,0 +1,202 @@
+# Manifest validation pipeline for the plugin index repo.
+#
+# This file belongs in the INDEX repo (plugins/*.yaml + this pipeline),
+# NOT the dongle host repo — it has no Go source of its own. It DOWNLOADS
+# the validate-manifest tool that the dongle repo builds and publishes
+# (see dongle's azure-pipelines-tooling.yml) and runs it here; it never
+# builds the tool from source. All validation LOGIC lives in that
+# downloaded tool — this pipeline only orchestrates (checkout, az login,
+# download, run), so a future migration to GitHub Actions is a thin
+# wrapper rewrite, not a rewrite of validation itself.
+#
+# Two ways this runs:
+#   - On every PR to main: validates only the plugins/*.yaml files that
+#     changed in the PR (fast), and flags brand-new plugin files so
+#     reviewers apply the new-plugin onboarding review (see CONTRIBUTING.md
+#     / docs/publishing-plugins.md).
+#   - On a nightly schedule (or a manual queue, always available regardless
+#     of trigger config): a full scan of every plugins/*.yaml, to catch
+#     drift in manifests nobody touched — e.g. a package referenced by an
+#     old manifest was deleted from the feed after it was last validated.
+#
+# Two different auth paths are in play here, for two different az command
+# groups:
+#   - Downloading validate-manifest itself, and the new-plugin PR-comment
+#     step, use the AZURE_SERVICE_CONNECTION below (an AzureCLI@2-driven
+#     `az login`).
+#   - The actual "Validate manifests" step is a plain script step, and
+#     authenticates via AZURE_DEVOPS_EXT_PAT (System.AccessToken) instead —
+#     that's what validate-manifest's package-existence check needs, since
+#     it shells out to `az artifacts universal download`, which reads
+#     AZURE_DEVOPS_EXT_PAT directly and does NOT accept an `az login`
+#     session from a wrapping AzureCLI@2 task the way `az rest` would.
+#
+# TODO: fill in TOOLING_FEED, VALIDATE_MANIFEST_VERSION, and
+# AZURE_SERVICE_CONNECTION below. The service connection only needs feed
+# READ on TOOLING_FEED (to download the validator) — it is NOT used for
+# package-existence checks against plugin feeds; see the auth-path note
+# above and the "Validate manifests" step's own comment for that. If you
+# want the new-plugin PR comment step below to work, the service
+# connection also needs "Pull Request Threads" write scope; if you'd
+# rather not grant that, delete that step — the log warning alone still
+# surfaces new plugins to reviewers.
+#
+# Separately: the build service identity behind System.AccessToken (used
+# by the "Validate manifests" step) must have feed READ on every feed any
+# plugins/*.yaml in this repo names — see that step's own comment.
+
+trigger: none # this pipeline runs on PRs (below) and on the schedule (below), never on a bare push to main.
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - plugins/*.yaml
+
+schedules:
+  - cron: "0 6 * * *"
+    displayName: "Nightly full manifest scan"
+    branches:
+      include:
+        - main
+    always: true # run even if nothing changed since the last scheduled run
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # TODO: the feed validate-manifest itself was published to (see dongle's
+  # azure-pipelines-tooling.yml) — usually a different feed than the one
+  # any given plugin's manifest points at.
+  TOOLING_FEED: "TODO-tooling-feed-name"
+  # TODO: pin to a specific validate-manifest version. Bump this
+  # deliberately (its own small PR) when you want index PRs to start being
+  # checked by a newer validator — never "latest".
+  VALIDATE_MANIFEST_VERSION: "TODO-pin-a-version"
+  # TODO: service connection with feed READ on TOOLING_FEED only (see the
+  # auth-path note above) — plus "Pull Request Threads" write if you keep
+  # the new-plugin PR-comment step.
+  AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
+
+steps:
+  - checkout: self
+    fetchDepth: 0 # PR mode diffs against the target branch, so full history is needed
+
+  - task: AzureCLI@2
+    displayName: "Download validate-manifest from the feed"
+    inputs:
+      azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        az extension add --name azure-devops --only-show-errors
+
+        dest="$(Agent.TempDirectory)/validate-manifest"
+        mkdir -p "$dest"
+
+        echo "downloading validate-manifest-linux-amd64@$(VALIDATE_MANIFEST_VERSION) from feed '$(TOOLING_FEED)'..."
+        az artifacts universal download \
+          --organization "$(System.CollectionUri)" \
+          --feed "$(TOOLING_FEED)" \
+          --name validate-manifest-linux-amd64 \
+          --version "$(VALIDATE_MANIFEST_VERSION)" \
+          --path "$dest"
+
+        bin=$(find "$dest" -maxdepth 1 -type f | head -n1)
+        if [ -z "$bin" ]; then
+          echo "error: no file found in downloaded validate-manifest package" >&2
+          exit 1
+        fi
+        chmod +x "$bin"
+        echo "##vso[task.setvariable variable=VALIDATOR_BIN]$bin"
+
+  - task: AzureCLI@2
+    displayName: "Detect new plugin manifests (PR mode only)"
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    inputs:
+      azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        az extension add --name azure-devops --only-show-errors
+
+        git fetch origin "$(System.PullRequest.TargetBranch)" --depth=1
+        target="origin/$(System.PullRequest.TargetBranch)"
+
+        mapfile -t added < <(git diff --name-only --diff-filter=A "$target"...HEAD -- 'plugins/*.yaml')
+        if [ ${#added[@]} -eq 0 ]; then
+          echo "no new plugin manifests in this PR"
+          exit 0
+        fi
+
+        for f in "${added[@]}"; do
+          msg="NEW PLUGIN MANIFEST: $f — new plugins need central/platform-team review in addition to any per-plugin owner (see CODEOWNERS and docs/publishing-plugins.md)."
+          echo "##vso[task.logissue type=warning]$msg"
+
+          # Best-effort PR comment in addition to the log warning above —
+          # requires the service connection to have "Pull Request Threads"
+          # write scope (see the TODO block at the top of this file). Never
+          # fails the pipeline on its own: a missing scope should not block
+          # validation, only lose the extra visibility.
+          # TODO: verify this exact `az repos pr comment create` invocation
+          # against your azure-devops CLI extension version — flags have
+          # shifted across versions.
+          az repos pr comment create \
+            --organization "$(System.CollectionUri)" \
+            --project "$(System.TeamProject)" \
+            --repository "$(Build.Repository.Name)" \
+            --id "$(System.PullRequest.PullRequestId)" \
+            --comment "$msg" \
+            --only-show-errors \
+            || echo "warning: could not post PR comment (check service connection scope) — the log warning above still stands"
+        done
+
+  - script: |
+      set -euo pipefail
+
+      if [ "$(Build.Reason)" = "PullRequest" ]; then
+        echo "== PR mode: validating changed manifests =="
+
+        git fetch origin "$(System.PullRequest.TargetBranch)" --depth=1
+        target="origin/$(System.PullRequest.TargetBranch)"
+
+        mapfile -t changed < <(git diff --name-only --diff-filter=ACMR "$target"...HEAD -- 'plugins/*.yaml')
+        if [ ${#changed[@]} -eq 0 ]; then
+          echo "no plugins/*.yaml changes in this PR — nothing to validate"
+          exit 0
+        fi
+
+        echo "changed manifests:"
+        printf '  %s\n' "${changed[@]}"
+        "$(VALIDATOR_BIN)" "${changed[@]}"
+      else
+        echo "== full scan mode: validating all plugins/*.yaml =="
+        "$(VALIDATOR_BIN)" --dir plugins/
+      fi
+    displayName: "Validate manifests"
+    name: validate
+    env:
+      # Relies on the azure-devops CLI extension already being installed
+      # by the "Download validate-manifest from the feed" step above (it
+      # persists on the agent for the rest of the job) — this step does
+      # not re-run `az extension add` itself, since doing so a second time
+      # errors under `set -e` once the extension is already present.
+      #
+      # validate-manifest's package-existence check shells out to
+      # `az artifacts universal download` (not `az rest` — that command
+      # does NOT pick up AZURE_DEVOPS_EXT_PAT and fails 401/403 here even
+      # with a valid token). AZURE_DEVOPS_EXT_PAT authenticates `az
+      # artifacts` directly from this plain script step, with no `az
+      # login` or service connection required — System.AccessToken is the
+      # pipeline job's own build-identity OAuth token.
+      #
+      # TODO: the build service identity this token represents must have
+      # READ access to every feed any plugins/*.yaml in this repo names —
+      # grant it under Project Settings -> that feed -> Permissions
+      # (Reader). Without it, az artifacts will 401/403 even though a
+      # valid token is present.
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
