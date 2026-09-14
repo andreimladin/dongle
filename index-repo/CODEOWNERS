@@ -1,12 +1,15 @@
 # CODEOWNERS for the dongle plugin index.
 #
-# Documentation-only for now (this repo is on Azure DevOps, which doesn't
-# enforce CODEOWNERS natively) — reviewers should still route PRs to the
-# owners listed below by hand. Once this repo moves to GitHub, turning on
-# branch protection + "Require review from Code Owners" makes this file
-# enforced automatically, with no other changes needed.
+# Authored now as documentation of per-plugin ownership; not natively
+# enforced yet. This repo is on Azure DevOps today, which doesn't read
+# CODEOWNERS — in the interim, mirror the rules below as Azure DevOps
+# branch policies (Required reviewers, scoped by path) if you want them
+# enforced rather than just documented. Once this repo moves to GitHub,
+# turning on branch protection + "Require review from Code Owners" makes
+# this file itself enforced automatically, with no other changes needed.
 #
-# Governance (see docs/publishing-plugins.md for the full picture):
+# Governance (see CONTRIBUTING.md and docs/publishing-plugins.md for the
+# full picture):
 #   - Per-plugin owners approve changes to their own plugins/<name>.yaml —
 #     version bumps, new platforms, feed coordinate changes.
 #   - NEW plugin manifests need central/platform-team review in addition

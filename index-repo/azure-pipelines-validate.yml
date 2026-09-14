@@ -1,27 +1,33 @@
 # Manifest validation pipeline for the plugin index repo.
 #
 # This file belongs in the INDEX repo (plugins/*.yaml + this pipeline),
-# NOT the dongle host repo. It downloads the validate-manifest tool that
-# the dongle repo builds and publishes (see dongle's
-# azure-pipelines-tooling.yml) and runs it here — all validation LOGIC
-# lives in that downloaded tool; this pipeline only orchestrates
-# (checkout, az login, download, run), so a future migration to GitHub
-# Actions is a thin wrapper rewrite, not a rewrite of validation itself.
+# NOT the dongle host repo — it has no Go source of its own. It DOWNLOADS
+# the validate-manifest tool that the dongle repo builds and publishes
+# (see dongle's azure-pipelines-tooling.yml) and runs it here; it never
+# builds the tool from source. All validation LOGIC lives in that
+# downloaded tool — this pipeline only orchestrates (checkout, az login,
+# download, run), so a future migration to GitHub Actions is a thin
+# wrapper rewrite, not a rewrite of validation itself.
 #
 # Two ways this runs:
 #   - On every PR to main: validates only the plugins/*.yaml files that
-#     changed in the PR (fast, and flags brand-new plugin files for the
-#     onboarding review governance requires).
-#   - On a nightly schedule (and by manual queue): a full scan of every
-#     plugins/*.yaml, to catch drift — a package deleted from the feed
-#     after its manifest was merged, a feed renamed, etc.
+#     changed in the PR (fast), and flags brand-new plugin files so
+#     reviewers apply the new-plugin onboarding review (see CONTRIBUTING.md
+#     / docs/publishing-plugins.md).
+#   - On a nightly schedule (or a manual queue, always available regardless
+#     of trigger config): a full scan of every plugins/*.yaml, to catch
+#     drift in manifests nobody touched — e.g. a package referenced by an
+#     old manifest was deleted from the feed after it was last validated.
 #
 # TODO: fill in TOOLING_FEED, VALIDATE_MANIFEST_VERSION, and
-# AZURE_SERVICE_CONNECTION below. The service connection needs feed READ
-# on TOOLING_FEED (to download the validator) and on every feed any
-# plugins/*.yaml in this repo names (validate-manifest itself needs READ
-# on those to run its package-existence checks) — NOT write access to
-# anything.
+# AZURE_SERVICE_CONNECTION below. The service connection needs feed READ on
+# TOOLING_FEED (to download the validator) and on every feed any
+# plugins/*.yaml in this repo names (validate-manifest itself needs READ on
+# those to run its package-existence checks) — no write access needed for
+# validation itself. If you want the new-plugin PR comment step below to
+# work, it also needs "Pull Request Threads" write scope; if you'd rather
+# not grant that, delete that step — the log warning alone still surfaces
+# new plugins to reviewers.
 
 trigger: none # this pipeline runs on PRs (below) and on the schedule (below), never on a bare push to main.
 
@@ -54,7 +60,8 @@ variables:
   # checked by a newer validator — never "latest".
   VALIDATE_MANIFEST_VERSION: "TODO-pin-a-version"
   # TODO: service connection with feed READ (see note above) — no write
-  # access needed anywhere.
+  # access needed anywhere for validation; PR-comment scope is separate,
+  # see the note above.
   AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
 
 steps:
@@ -91,6 +98,48 @@ steps:
         echo "##vso[task.setvariable variable=VALIDATOR_BIN]$bin"
 
   - task: AzureCLI@2
+    displayName: "Detect new plugin manifests (PR mode only)"
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    inputs:
+      azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        az extension add --name azure-devops --only-show-errors
+
+        git fetch origin "$(System.PullRequest.TargetBranch)" --depth=1
+        target="origin/$(System.PullRequest.TargetBranch)"
+
+        mapfile -t added < <(git diff --name-only --diff-filter=A "$target"...HEAD -- 'plugins/*.yaml')
+        if [ ${#added[@]} -eq 0 ]; then
+          echo "no new plugin manifests in this PR"
+          exit 0
+        fi
+
+        for f in "${added[@]}"; do
+          msg="NEW PLUGIN MANIFEST: $f — new plugins need central/platform-team review in addition to any per-plugin owner (see CODEOWNERS and docs/publishing-plugins.md)."
+          echo "##vso[task.logissue type=warning]$msg"
+
+          # Best-effort PR comment in addition to the log warning above —
+          # requires the service connection to have "Pull Request Threads"
+          # write scope (see the TODO block at the top of this file). Never
+          # fails the pipeline on its own: a missing scope should not block
+          # validation, only lose the extra visibility.
+          # TODO: verify this exact `az repos pr comment create` invocation
+          # against your azure-devops CLI extension version — flags have
+          # shifted across versions.
+          az repos pr comment create \
+            --organization "$(System.CollectionUri)" \
+            --project "$(System.TeamProject)" \
+            --repository "$(Build.Repository.Name)" \
+            --id "$(System.PullRequest.PullRequestId)" \
+            --comment "$msg" \
+            --only-show-errors \
+            || echo "warning: could not post PR comment (check service connection scope) — the log warning above still stands"
+        done
+
+  - task: AzureCLI@2
     displayName: "Validate manifests"
     name: validate
     inputs:
@@ -110,14 +159,6 @@ steps:
           target="origin/$(System.PullRequest.TargetBranch)"
 
           mapfile -t changed < <(git diff --name-only --diff-filter=ACMR "$target"...HEAD -- 'plugins/*.yaml')
-          mapfile -t added < <(git diff --name-only --diff-filter=A "$target"...HEAD -- 'plugins/*.yaml')
-
-          if [ ${#added[@]} -gt 0 ]; then
-            for f in "${added[@]}"; do
-              echo "##vso[task.logissue type=warning]NEW PLUGIN MANIFEST: $f — new plugins need central/platform-team review in addition to any per-plugin owner (see CODEOWNERS and docs/publishing-plugins.md)."
-            done
-          fi
-
           if [ ${#changed[@]} -eq 0 ]; then
             echo "no plugins/*.yaml changes in this PR — nothing to validate"
             exit 0

@@ -148,21 +148,49 @@ pass too, modulo anything that changes on the feed between now and then.
    file for the new-plugin review below.
 3. Fill in the PR template's checklist.
 
+## New plugin onboarding
+
+Onboarding a brand-new plugin is a heavier path than a routine version
+bump: there's no existing owner yet, no established feed coordinates on
+file, and it needs central/platform-team review rather than just your own
+sign-off. Walkthrough:
+
+1. **Pick a name.** It must not collide with an existing `dongle <name>`
+   builtin or another plugin already in `plugins/`.
+2. **Publish before you PR.** Set up (or reuse) the Azure Artifacts feed
+   you'll publish to, then build and publish your plugin's per-platform
+   packages (see "Publishing your plugin's packages to the feed" above).
+   You need at least one platform published before your manifest can pass
+   the existence check.
+3. **Write the manifest.** Copy the annotated example above into
+   `plugins/<name>.yaml`, fill in your own values, and validate it locally
+   (see "Validating locally" above) before opening a PR.
+4. **Claim ownership.** In the same PR, add a
+   `plugins/<name>.yaml -> owning team` line to `CODEOWNERS`. This is what
+   turns future version bumps to your plugin into an owner-approved change
+   instead of requiring central review every time.
+5. **Open the PR.** The validation pipeline detects that this manifest is
+   new relative to the target branch and flags it (a pipeline log warning,
+   and — where the pipeline is configured for it — a PR comment) so
+   reviewers know it needs central/platform-team sign-off, not just a
+   per-plugin owner who doesn't exist yet.
+6. **Fill in the "New plugin only" section** of the PR template.
+
+Once this merges, every later PR to `plugins/<name>.yaml` is a routine
+version bump, approved by the team you just added to `CODEOWNERS` — no
+central review needed unless you're adding a platform or changing feed
+coordinates in a way reviewers flag as significant.
+
 ## Governance
 
-- **Version bumps to an existing plugin** are approved by that plugin's
+Summarized here for context; see
+[CONTRIBUTING.md](../CONTRIBUTING.md#governance) for the authoritative
+version:
+
+- **Version bumps** to an existing plugin are approved by that plugin's
   owner(s), as listed in `CODEOWNERS`.
-- **New plugins** need central/platform-team review in addition to (or
-  instead of, if there isn't an owner yet) a per-plugin owner — the PR
-  pipeline flags any `plugins/*.yaml` that's new relative to the target
-  branch so reviewers know to apply this. Once a new plugin is approved,
-  add its `plugins/<name>.yaml -> owning team` line to `CODEOWNERS` as part
-  of that same PR.
+- **New plugins** require central/platform-team review — see the
+  walkthrough above.
 - Platform coverage is up to each plugin owner — the validator does not
   require every `os`/`arch` to be covered, only that whatever you *do*
   declare is well-formed and actually published.
-
-## Getting help
-
-<!-- TODO: link your team's support channel / docs here (Slack channel,
-Teams channel, internal wiki page, etc.) — parked until those exist. -->

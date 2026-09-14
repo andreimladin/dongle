@@ -9,9 +9,10 @@ repo's root (it already mirrors the layout: `docs/` nests the same way).
 | file | goes to (index repo) |
 |---|---|
 | `azure-pipelines-validate.yml` | repo root — PR + scheduled manifest validation pipeline |
+| `CONTRIBUTING.md` | repo root — concise front door: what this repo is, how to contribute, governance summary |
 | `CODEOWNERS` | repo root — per-plugin ownership |
 | `PULL_REQUEST_TEMPLATE.md` | repo root — manifest PR checklist |
-| `docs/publishing-plugins.md` | `docs/` — the manifest format + contribution/governance doc |
+| `docs/publishing-plugins.md` | `docs/` — the detailed guide: manifest format field-by-field, publishing packages, validating locally, new-plugin onboarding |
 
 See `docs/publishing-plugins.md` for the manifest format itself, and
 `tools/validate-manifest` (`../tools/validate-manifest` from here) in this
