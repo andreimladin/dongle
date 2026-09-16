@@ -60,6 +60,7 @@ Builtins:
   dongle plugin uninstall <name>
   dongle index refresh             force-refresh the index cache
   dongle index status
+  dongle support <plugin-name>     show where to get help with a plugin
   dongle <name> [args...]          run an installed plugin`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
@@ -98,7 +99,7 @@ func init() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return exitCode(2)
 	})
-	rootCmd.AddCommand(versionCmd, pluginCmd, indexCmd)
+	rootCmd.AddCommand(versionCmd, pluginCmd, indexCmd, supportCmd)
 }
 
 // Execute runs the root command and returns the process exit code.

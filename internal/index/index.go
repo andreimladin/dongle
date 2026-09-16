@@ -75,6 +75,16 @@ type Manifest struct {
 	Requires         compat.Requires `yaml:"requires"`
 	Feed             Feed            `yaml:"feed"`
 	Platforms        []Platform      `yaml:"platforms"`
+	Support          Support         `yaml:"support"`
+}
+
+// Support is where users go for help with a plugin: shown by `dongle
+// support <plugin>`. Documentation and Channel are mandatory (enforced by
+// tools/validate-manifest); Contact is optional.
+type Support struct {
+	Documentation string `yaml:"documentation"`
+	Channel       string `yaml:"channel"`
+	Contact       string `yaml:"contact,omitempty"`
 }
 
 // Feed locates the artifact in Azure Artifacts (one Universal Package per plugin

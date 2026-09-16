@@ -17,7 +17,10 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-const indexTTL = 24 * time.Hour
+// IndexTTL is how long a cloned index cache is trusted before commands that
+// read it force a refresh. Exported so other builtins that read the index
+// (e.g. `dongle support`) stay on the same freshness policy.
+const IndexTTL = 24 * time.Hour
 
 // Run handles `dongle plugin <subcommand>`.
 func Run(hostVersion, protocol string, args []string) int {
@@ -72,7 +75,7 @@ func list() int {
 
 // search shows what's available in the catalog (needs the index cache).
 func search() int {
-	if err := index.EnsureFresh(indexTTL); err != nil {
+	if err := index.EnsureFresh(IndexTTL); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
@@ -94,7 +97,7 @@ func install(hostVersion, protocol, name string) int {
 }
 
 func installFromName(hostVersion, protocol, name string) int {
-	if err := index.EnsureFresh(indexTTL); err != nil {
+	if err := index.EnsureFresh(IndexTTL); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}

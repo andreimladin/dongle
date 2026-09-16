@@ -61,6 +61,15 @@ platforms:
     package: dongle-deploy_2.3.1_darwin_arm64   # the Universal Package name for THIS platform
   - selector: { os: linux, arch: amd64 }
     package: dongle-deploy_2.3.1_linux_amd64
+
+# Where users go for help with this plugin. Surfaced verbatim by
+# `dongle support deploy`. documentation and channel are REQUIRED —
+# validate-manifest hard-fails a manifest missing either. contact is
+# optional.
+support:
+  documentation: https://docs.acme.internal/dongle-deploy
+  channel: https://acme.slack.com/archives/C0DEPLOY
+  contact: deploy-team@acme.example.com
 ```
 
 Field-by-field:
@@ -79,6 +88,14 @@ Field-by-field:
 | `feed.packageName` | yes | your own naming convention (see below); dongle doesn't parse it |
 | `platforms[].selector.os` / `.arch` | yes, per entry | Go `GOOS`/`GOARCH` spelling (`darwin`, `linux`, `windows`; `amd64`, `arm64`) |
 | `platforms[].package` | yes, per entry | the Universal Package name published for **this** os/arch |
+| `support.documentation` | yes | URL to the plugin's docs; validation fails without it |
+| `support.channel` | yes | URL to the plugin's support channel (Slack, issue tracker, etc.); validation fails without it |
+| `support.contact` | no | an email/handle for direct contact |
+
+`support.documentation` and `support.channel` are shown verbatim by `dongle
+support <plugin-name>`, so users can find help without knowing where your
+team hangs out. Both are mandatory — `validate-manifest` hard-fails a
+manifest missing either — `support.contact` is optional.
 
 Unknown top-level or nested fields are rejected by `validate-manifest`
 (strict parsing) — it's almost always a typo, so treat that error as "fix
