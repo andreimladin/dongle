@@ -95,6 +95,14 @@ job matrix (or whatever `<os> <arch>` pair you pass the script by hand).
   the host feed. Feed names and the service connection are parameterized at
   the top of the file with `TODO` placeholders — fill those in before
   running it.
+- **`azure-pipelines-tooling.yml`** — publishes `tools/validate-manifest`
+  (see below) to the feed. Same `Guard`-derives-`DONGLE_VERSION` shape as
+  the release pipeline, but triggered off `tooling/X.Y.Z` branches and
+  matrixed only over the platforms the tool itself needs to run on
+  (`linux/amd64` for CI, `darwin/arm64` for local use) — not all six host
+  targets. Feed name and service connection are separate `TODO`
+  placeholders from the release pipeline's, since this only needs feed
+  WRITE, not plugin-feed READ.
 
 All actual build logic lives in `scripts/build.sh`; both pipelines only
 orchestrate it, so a future GitHub Actions migration is a wrapper rewrite,
@@ -207,6 +215,10 @@ azure-pipelines-ci.yml       PR/push soundness gate: build, vet, gofmt, test
 azure-pipelines-release.yml  manual-only: Guard job (release/X.Y.Z + version)
                         then a BuildAndPublish job matrixed over the six
                         target platforms, publishing to the host feed
+azure-pipelines-tooling.yml  publishes tools/validate-manifest to the feed;
+                        same Guard shape as release, triggered off
+                        tooling/X.Y.Z, matrixed only over the validator's
+                        own runner platforms (not all six host targets)
 configs/                build input consumed by scripts/build.sh
                         (build.yaml: index url/branch, embedded plugins —
                         no target platforms, those live in the release
@@ -234,6 +246,15 @@ tools/resolve-plugin/   build-time-only helper: manifest -> feed coordinates
 tools/readconfig/       build-time-only helper: reads configs/build.yaml,
                         prints the index coords or embedded-plugin list for
                         scripts/build.sh (not a dongle subcommand)
+tools/validate-manifest/  standalone tool (not a dongle subcommand): validates
+                        plugins/<name>.yaml manifests using the exact same
+                        internal/index types/parsing dongle itself uses, plus
+                        a feed existence check per declared platform. Built
+                        for the index repo's own PR pipeline to download from
+                        the feed and run against changed/all manifests — see
+                        azure-pipelines-tooling.yml (publishes it here) and
+                        the generated azure-pipelines-validate.yml (consumes
+                        it, in the separate index repo).
 examples/dongle-deploy/  sample cobra plugin (its own module)
 examples/index/          sample index-repo manifest (Azure feed coordinates)
 ```
