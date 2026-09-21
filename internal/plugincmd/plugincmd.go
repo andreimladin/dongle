@@ -17,7 +17,10 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-const indexTTL = 24 * time.Hour
+// IndexTTL is how long a cloned index cache is trusted before commands that
+// read it force a refresh. Exported so other builtins that read the index
+// (e.g. `dongle support`) stay on the same freshness policy.
+const IndexTTL = 24 * time.Hour
 
 // Run handles `dongle plugin <subcommand>`.
 func Run(hostVersion, protocol string, args []string) int {
@@ -42,6 +45,12 @@ func Run(hostVersion, protocol string, args []string) int {
 			return 2
 		}
 		return uninstall(args[1])
+	case "update":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: dongle plugin update <name>")
+			return 2
+		}
+		return update(hostVersion, protocol, args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown plugin subcommand %q\n", args[0])
 		return 2
@@ -72,7 +81,7 @@ func list() int {
 
 // search shows what's available in the catalog (needs the index cache).
 func search() int {
-	if err := index.EnsureFresh(indexTTL); err != nil {
+	if err := index.EnsureFresh(IndexTTL); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
@@ -93,8 +102,61 @@ func install(hostVersion, protocol, name string) int {
 	return installFromName(hostVersion, protocol, name)
 }
 
+// update brings an already-installed plugin up to the version the index
+// currently declares. It reuses installFromName for the actual fetch/place
+// once a newer version is confirmed, rather than duplicating that logic.
+func update(hostVersion, protocol, name string) int {
+	st, err := state.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	inst, ok := st.Plugins[name]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "error: %s is not installed; use `dongle plugin install %s`\n", name, name)
+		return 1
+	}
+
+	if err := index.EnsureFresh(IndexTTL); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	m, err := index.Load(name)
+	if errors.Is(err, index.ErrNotFound) {
+		fmt.Fprintf(os.Stderr, "error: %s is not in the index\n", name)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	switch {
+	case cmp == 0:
+		fmt.Printf("%s is already up to date (%s)\n", name, inst.ActiveVersion)
+		return 0
+	case cmp < 0:
+		fmt.Fprintf(os.Stderr,
+			"error: installed version %s is newer than the index (%s); not downgrading. Use uninstall + install to force.\n",
+			inst.ActiveVersion, m.Version)
+		return 1
+	}
+
+	oldVersion := inst.ActiveVersion
+	if code := installFromName(hostVersion, protocol, name); code != 0 {
+		return code
+	}
+	fmt.Printf("updated %s %s -> %s\n", name, oldVersion, strings.TrimPrefix(m.Version, "v"))
+	return 0
+}
+
 func installFromName(hostVersion, protocol, name string) int {
-	if err := index.EnsureFresh(indexTTL); err != nil {
+	if err := index.EnsureFresh(IndexTTL); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}

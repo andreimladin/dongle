@@ -194,6 +194,12 @@ Real and testable now:
   compat gate → exec one-shot child, inheriting the terminal.
 - **install / uninstall / list** from a local build dir; **search** from the
   index cache.
+- **update**: `dongle plugin update <name>` compares an installed plugin's
+  `ActiveVersion` against the version the index currently declares and, if
+  the index is ahead, runs the same install path to fetch and place it —
+  refusing to downgrade if the installed version is somehow newer than the
+  index. The old version directory is left on disk (only the active pointer
+  in `state.json` moves), so rollback stays possible.
 - **Compatibility gates** (`requires.host` range + `requires.protocol` exact) at
   both install time and dispatch time, from the shared `internal/compat`.
 - **Embedded git index**: `dongle index refresh|status`, 24h TTL cache,

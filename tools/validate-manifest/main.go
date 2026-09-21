@@ -200,6 +200,13 @@ func checkCorrectness(path string) (m *index.Manifest, errs []string) {
 		errs = append(errs, "feed.packageName is required")
 	}
 
+	if m.Support.Documentation == "" {
+		errs = append(errs, "support.documentation is required")
+	}
+	if m.Support.Channel == "" {
+		errs = append(errs, "support.channel is required")
+	}
+
 	if len(m.Platforms) == 0 {
 		errs = append(errs, "platforms: at least one platform entry is required")
 	}

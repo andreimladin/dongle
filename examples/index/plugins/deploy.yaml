@@ -23,3 +23,7 @@ platforms:
     package: dongle-deploy_2.3.1_darwin_arm64
   - selector: { os: linux, arch: amd64 }
     package: dongle-deploy_2.3.1_linux_amd64
+support:
+  documentation: https://docs.acme.internal/dongle-deploy
+  channel: https://acme.slack.com/archives/C0DEPLOY
+  contact: deploy-team@acme.example.com
