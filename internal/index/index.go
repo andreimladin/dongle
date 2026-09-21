@@ -1,21 +1,28 @@
-// Package index manages the embedded git-based plugin catalog: a local clone,
-// refreshed on a TTL, mapping plugin name -> version -> Azure feed artifact.
+// Package index manages the embedded plugin catalog: a versioned
+// "dongle-index" Universal Package (a tar+gzip archive of plugins/*.yaml
+// manifests) downloaded from Azure Artifacts, extracted, and refreshed on
+// a TTL, mapping plugin name -> version -> Azure feed artifact.
 //
-// The index URL and branch are build-time build inputs — baked in via
-// -ldflags at build time (see cmd/root.go and configs/build.yaml) and
-// wired into this package once at startup via SetDefaults. DONGLE_INDEX_URL
-// and DONGLE_INDEX_BRANCH override them as dev escape hatches; normal users
-// never set them.
+// The feed package identity (org/project/feed/package name) is a
+// build-time build input — baked in via -ldflags at build time (see
+// cmd/root.go and configs/build.yaml) and wired into this package once at
+// startup via SetDefaults. DONGLE_INDEX_ORG / DONGLE_INDEX_PROJECT /
+// DONGLE_INDEX_FEED / DONGLE_INDEX_PACKAGE override them as dev escape
+// hatches; normal users never set them.
 package index
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -24,43 +31,64 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
-// injected holds the catalog git repository coordinates — a private Azure
-// DevOps repo served over HTTPS — wired in once via SetDefaults from the
-// build-time-injected values (cmd/root.go is the single source of these).
-// Named fields rather than package-level vars so they don't collide with
-// the indexURL()/indexBranch() accessors below. dongle does not manage
-// credentials for the repo — cloning and pulling shell out to the system
-// `git`, which authenticates via Git Credential Manager (or whatever
-// credential helper the machine already has configured).
+// injected holds the index package's Azure Artifacts feed coordinates —
+// wired in once via SetDefaults from the build-time-injected values
+// (cmd/root.go is the single source of these). Named fields rather than
+// package-level vars so they don't collide with the indexOrg()/etc.
+// accessors below. Downloading shells out to the system `az` CLI, which
+// authenticates however it's already logged in (or AZURE_DEVOPS_EXT_PAT in
+// CI).
 var injected struct {
-	indexUrl    string
-	indexBranch string
+	indexOrg     string
+	indexProject string
+	indexFeed    string
+	indexPackage string
 }
 
-// SetDefaults wires the build-time-injected index URL/branch into this
+// SetDefaults wires the build-time-injected index feed identity into this
 // package. Called once at startup (see cmd/root.go's Execute), before any
-// index/plugin command runs.
-func SetDefaults(url, branch string) {
-	injected.indexUrl = url
-	injected.indexBranch = branch
+// refresh/plugin command runs.
+func SetDefaults(org, project, feed, pkg string) {
+	injected.indexOrg = org
+	injected.indexProject = project
+	injected.indexFeed = feed
+	injected.indexPackage = pkg
 }
 
-func indexURL() string {
-	if v := os.Getenv("DONGLE_INDEX_URL"); v != "" {
+func indexOrg() string {
+	if v := os.Getenv("DONGLE_INDEX_ORG"); v != "" {
 		return v
 	}
-	return injected.indexUrl
+	return injected.indexOrg
 }
 
-func indexBranch() string {
-	if v := os.Getenv("DONGLE_INDEX_BRANCH"); v != "" {
+func indexProject() string {
+	if v := os.Getenv("DONGLE_INDEX_PROJECT"); v != "" {
 		return v
 	}
-	return injected.indexBranch
+	return injected.indexProject
 }
 
-func cacheDir() string { return filepath.Join(state.DataDir(), "index") }
-func metaPath() string { return filepath.Join(state.DataDir(), "index.meta") }
+func indexFeed() string {
+	if v := os.Getenv("DONGLE_INDEX_FEED"); v != "" {
+		return v
+	}
+	return injected.indexFeed
+}
+
+func indexPackage() string {
+	if v := os.Getenv("DONGLE_INDEX_PACKAGE"); v != "" {
+		return v
+	}
+	return injected.indexPackage
+}
+
+// cacheDir is the extracted archive's root: it holds a "plugins/" subdir
+// of manifests, mirroring index.tar.gz's own layout (see
+// azure-pipelines-publish-index.yml in the index repo).
+func cacheDir() string    { return filepath.Join(state.DataDir(), "index") }
+func metaPath() string    { return filepath.Join(state.DataDir(), "index.meta") }
+func versionPath() string { return filepath.Join(state.DataDir(), "index.version") }
 
 var ErrNotFound = errors.New("plugin not found in index")
 
@@ -109,56 +137,202 @@ type Selector struct {
 
 // --- refresh lifecycle --------------------------------------------------------
 
-// EnsureFresh clones the index if absent, or pulls if the cache is older than
-// ttl. A pull failure with an existing cache is a non-fatal warning, so being
-// offline never blocks commands that can run on a slightly stale catalog.
+// EnsureFresh downloads the index if the cache is absent, or re-downloads
+// if the cache is older than ttl. A download failure with an existing
+// cache is a non-fatal warning, so being offline never blocks commands
+// that can run on a slightly stale catalog.
 func EnsureFresh(ttl time.Duration) error {
 	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
-		return clone()
+		return download()
 	}
 	age, err := cacheAge()
 	if err != nil || age > ttl {
-		if err := pull(); err != nil {
+		if err := download(); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not refresh index (%v); using cached copy\n", err)
 		}
 	}
 	return nil
 }
 
-// Refresh forces a pull now, ignoring the TTL (`dongle index refresh`).
+// Refresh forces a download now, ignoring the TTL (`dongle refresh`).
 func Refresh() error {
-	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
-		return clone()
-	}
-	return pull()
+	return download()
 }
 
-// Status reports where the index points, which branch it's pinned to, and how
-// old the cache is.
-func Status() (url string, branch string, age time.Duration, cloned bool) {
-	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
-		return indexURL(), indexBranch(), 0, false
+// CachedVersion returns the version of the index currently cached (read
+// from the VERSION file recorded alongside the extracted manifests at
+// download time), and whether an index has been cached at all.
+func CachedVersion() (version string, ok bool) {
+	b, err := os.ReadFile(versionPath())
+	if err != nil {
+		return "", false
 	}
-	age, _ = cacheAge()
-	return indexURL(), indexBranch(), age, true
+	v := strings.TrimSpace(string(b))
+	if v == "" {
+		return "", false
+	}
+	return v, true
 }
 
-func clone() error {
+// download fetches the latest version of the index package from the feed,
+// extracts it, and atomically swaps it in as the new cache. It stages
+// everything under a temp dir on the same filesystem as the data dir so
+// the final swap is a same-filesystem rename.
+func download() error {
+	if _, err := exec.LookPath("az"); err != nil {
+		return fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+	}
 	if err := os.MkdirAll(state.DataDir(), 0o755); err != nil {
 		return err
 	}
-	if err := run("git", "clone", "--depth", "1", "--branch", indexBranch(),
-		indexURL(), cacheDir()); err != nil {
-		return fmt.Errorf("clone index: %w", err)
+
+	stagingRoot := filepath.Join(state.DataDir(), ".staging")
+	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(stagingRoot, "index-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+
+	dlDir := filepath.Join(staging, "download")
+	archivePath, err := downloadArchive(dlDir)
+	if err != nil {
+		return err
+	}
+
+	extractDir := filepath.Join(staging, "extracted")
+	if err := extractTarGz(archivePath, extractDir); err != nil {
+		return fmt.Errorf("extract index archive: %w", err)
+	}
+
+	version := ""
+	if b, err := os.ReadFile(filepath.Join(extractDir, "VERSION")); err == nil {
+		version = strings.TrimSpace(string(b))
+	}
+
+	if err := os.RemoveAll(cacheDir()); err != nil {
+		return err
+	}
+	if err := os.Rename(extractDir, cacheDir()); err != nil {
+		return fmt.Errorf("install extracted index: %w", err)
+	}
+
+	if version != "" {
+		if err := os.WriteFile(versionPath(), []byte(version), 0o644); err != nil {
+			return err
+		}
 	}
 	return touchMeta()
 }
 
-func pull() error {
-	if err := run("git", "-C", cacheDir(), "pull", "--ff-only", "origin", indexBranch()); err != nil {
-		return fmt.Errorf("pull index: %w", err)
+// downloadArchive shells out to the Azure CLI to pull the latest version
+// of the index Universal Package into destDir, returning the path to the
+// single downloaded file (expected to be index.tar.gz, but the package's
+// contents aren't assumed to be named predictably — the same defensiveness
+// internal/plugincmd's downloadArtifact uses).
+func downloadArchive(destDir string) (string, error) {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", err
 	}
-	return touchMeta()
+	args := []string{
+		"artifacts", "universal", "download",
+		"--organization", "https://dev.azure.com/" + indexOrg(),
+		"--feed", indexFeed(),
+		"--name", indexPackage(),
+		// "*" resolves to the latest published version — a feature specific
+		// to Universal Packages (unlike other Azure Artifacts package
+		// types). TODO: verify this exact flag behavior against the az CLI
+		// / azure-devops extension version you deploy with; if it ever
+		// changes, resolve the latest version explicitly (e.g. via the
+		// Azure Artifacts feed API) before calling download with it.
+		"--version", "*",
+		"--path", destDir,
+	}
+	if indexProject() != "" {
+		args = append(args, "--project", indexProject(), "--scope", "project")
+	}
+	cmd := exec.Command("az", args...)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("az download %s: %w", indexPackage(), err)
+	}
+
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		return "", err
+	}
+	var files []string
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			files = append(files, e.Name())
+		}
+	}
+	if len(files) != 1 {
+		return "", fmt.Errorf("package %s contains %d files, expected exactly 1", indexPackage(), len(files))
+	}
+	return filepath.Join(destDir, files[0]), nil
+}
+
+// extractTarGz extracts a tar+gzip archive into destDir, which must not
+// already exist. Rejects entries that would escape destDir ("zip-slip").
+func extractTarGz(archivePath, destDir string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	destRoot := filepath.Clean(destDir)
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		target := filepath.Join(destRoot, hdr.Name)
+		if target != destRoot && !strings.HasPrefix(target, destRoot+string(os.PathSeparator)) {
+			return fmt.Errorf("archive entry escapes destination: %s", hdr.Name)
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode)&0o777)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			if err := out.Close(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func cacheAge() (time.Duration, error) {
@@ -175,12 +349,6 @@ func touchMeta() error {
 		return err
 	}
 	return os.Chtimes(metaPath(), now, now)
-}
-
-func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr // git progress -> stderr
-	return cmd.Run()
 }
 
 // --- lookups ------------------------------------------------------------------
@@ -205,8 +373,8 @@ func Load(name string) (*Manifest, error) {
 // LoadFile reads and parses a manifest from an explicit file path, bypassing
 // the cache (cacheDir/EnsureFresh/Refresh) entirely. Purely additive next to
 // Load: used by build-time tools (tools/resolve-plugin) that need to read
-// plugins/<name>.yaml out of an arbitrary index checkout — e.g. one just
-// cloned fresh into a temp dir — without touching the managed cache.
+// plugins/<name>.yaml out of an arbitrary extracted index archive — e.g. one
+// just downloaded fresh into a temp dir — without touching the managed cache.
 func LoadFile(path string) (*Manifest, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
