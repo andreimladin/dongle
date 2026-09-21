@@ -2,8 +2,8 @@
 # Plugin install now resolves only from the index, and the feed download
 # (internal/plugincmd.downloadArtifact) is still a stub — so `dongle plugin
 # install <name>` can't complete end-to-end yet. This demo is trimmed to the
-# parts that work today: build, `dongle version`, and (if DONGLE_INDEX_URL or
-# similar is configured) `dongle plugin search` / `dongle index status`.
+# parts that work today: build, `dongle version`, and (if DONGLE_INDEX_ORG or
+# similar is configured) `dongle refresh` / `dongle plugin search`.
 set -eu
 cd "$(dirname "$0")"
 
@@ -15,12 +15,15 @@ rm -rf "$DONGLE_DATA_DIR"
 echo "== version =="
 ./dist/dongle version
 
-if [ -n "${DONGLE_INDEX_URL:-}" ]; then
-	echo; echo "== index status =="
-	./dist/dongle index status
+if [ -n "${DONGLE_INDEX_ORG:-}" ]; then
+	echo; echo "== refresh =="
+	./dist/dongle refresh
+
+	echo; echo "== version (with index cached) =="
+	./dist/dongle version
 
 	echo; echo "== plugin search =="
 	./dist/dongle plugin search
 else
-	echo; echo "(DONGLE_INDEX_URL not set — skipping index status/search)"
+	echo; echo "(DONGLE_INDEX_ORG not set — skipping refresh/plugin search)"
 fi

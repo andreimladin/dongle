@@ -1,7 +1,7 @@
 // Command readconfig is a build-time-only helper — NOT a dongle subcommand
 // and not part of the host↔plugin contract. scripts/build.sh shells out to
 // it to read configs/build.yaml (the single source of truth for the index
-// coordinates and the embedded plugin list) and print it back out in
+// feed identity and the embedded plugin list) and print it back out in
 // whatever plain, shell-friendly shape the caller needs — so the script
 // itself hardcodes none of it. It reuses gopkg.in/yaml.v3 (already a
 // dependency, via internal/index) rather than pulling in a YAML CLI tool.
@@ -11,8 +11,9 @@
 //	go run ./tools/readconfig --index [--file <path>]
 //	go run ./tools/readconfig --embedded [--file <path>]
 //
-// --index prints INDEX_URL/INDEX_BRANCH as eval-able shell assignments.
-// --embedded prints one "name:version" line per embedded plugin.
+// --index prints INDEX_ORG/INDEX_PROJECT/INDEX_FEED/INDEX_PACKAGE as
+// eval-able shell assignments. --embedded prints one plugin name per line
+// (versions are no longer pinned here — see configs/build.yaml).
 //
 // It is read-only: it parses and prints, and downloads or builds nothing.
 package main
@@ -28,13 +29,12 @@ import (
 // buildConfig mirrors configs/build.yaml's shape.
 type buildConfig struct {
 	Index struct {
-		URL    string `yaml:"url"`
-		Branch string `yaml:"branch"`
+		Organization string `yaml:"organization"`
+		Project      string `yaml:"project"`
+		Feed         string `yaml:"feed"`
+		Package      string `yaml:"package"`
 	} `yaml:"index"`
-	Embedded []struct {
-		Name    string `yaml:"name"`
-		Version string `yaml:"version"`
-	} `yaml:"embedded"`
+	Embedded []string `yaml:"embedded"`
 }
 
 func main() {
@@ -43,8 +43,8 @@ func main() {
 
 func run(args []string) int {
 	fs := flag.NewFlagSet("readconfig", flag.ContinueOnError)
-	index := fs.Bool("index", false, "print INDEX_URL/INDEX_BRANCH as shell assignments")
-	embedded := fs.Bool("embedded", false, "print one name:version line per embedded plugin")
+	index := fs.Bool("index", false, "print INDEX_ORG/INDEX_PROJECT/INDEX_FEED/INDEX_PACKAGE as shell assignments")
+	embedded := fs.Bool("embedded", false, "print one plugin name per line")
 	configPath := fs.String("file", "configs/build.yaml", "path to build.yaml")
 	fs.Usage = printUsage
 	if err := fs.Parse(args); err != nil {
@@ -69,11 +69,13 @@ func run(args []string) int {
 
 	switch {
 	case *index:
-		fmt.Printf("INDEX_URL=%q\n", cfg.Index.URL)
-		fmt.Printf("INDEX_BRANCH=%q\n", cfg.Index.Branch)
+		fmt.Printf("INDEX_ORG=%q\n", cfg.Index.Organization)
+		fmt.Printf("INDEX_PROJECT=%q\n", cfg.Index.Project)
+		fmt.Printf("INDEX_FEED=%q\n", cfg.Index.Feed)
+		fmt.Printf("INDEX_PACKAGE=%q\n", cfg.Index.Package)
 	case *embedded:
-		for _, e := range cfg.Embedded {
-			fmt.Printf("%s:%s\n", e.Name, e.Version)
+		for _, name := range cfg.Embedded {
+			fmt.Println(name)
 		}
 	}
 	return 0

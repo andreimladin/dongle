@@ -1,15 +1,18 @@
 // Command resolve-plugin is a build-time-only helper — NOT a dongle
 // subcommand and not part of the host↔plugin contract.
 // scripts/build.sh's fetch_embedded shells out to it, once per embedded
-// plugin, to read that plugin's Azure Artifacts feed coordinates straight
-// out of a local index checkout, so the build script never hardcodes
-// anything about the feed or reimplements the index's YAML parsing. It
-// reuses internal/index's Manifest type and internal/index.LoadFile —
-// nothing about manifest parsing lives here.
+// plugin, to read that plugin's Azure Artifacts feed coordinates AND
+// version straight out of a locally extracted index archive, so the build
+// script never hardcodes anything about the feed, pins plugin versions
+// itself, or reimplements the index's YAML parsing. It reuses
+// internal/index's Manifest type and internal/index.LoadFile — nothing
+// about manifest parsing lives here. The version embedded is always the
+// manifest's own declared version (configs/build.yaml's `embedded:` list
+// carries plugin names only, no versions — see its header comment).
 //
 // Usage:
 //
-//	go run ./tools/resolve-plugin <name> <version> <os> <arch> --index <path>
+//	go run ./tools/resolve-plugin <name> <os> <arch> --index <path>
 //
 // It is read-only: it resolves and prints coordinates, and downloads or
 // installs nothing.
@@ -37,17 +40,17 @@ func run(args []string) int {
 		}
 		return 0
 	}
-	if len(args) < 4 {
-		fmt.Fprintln(os.Stderr, "error: name, version, os, and arch are all required")
+	if len(args) < 3 {
+		fmt.Fprintln(os.Stderr, "error: name, os, and arch are all required")
 		printUsage()
 		return 2
 	}
-	name, version, goos, goarch := args[0], args[1], args[2], args[3]
+	name, goos, goarch := args[0], args[1], args[2]
 
 	fs := flag.NewFlagSet("resolve-plugin", flag.ContinueOnError)
-	indexDir := fs.String("index", "", "local index checkout to read plugins/<name>.yaml from (required)")
+	indexDir := fs.String("index", "", "local extracted index archive to read plugins/<name>.yaml from (required)")
 	fs.Usage = printUsage
-	if err := fs.Parse(args[4:]); err != nil {
+	if err := fs.Parse(args[3:]); err != nil {
 		return 2
 	}
 	if *indexDir == "" {
@@ -69,7 +72,7 @@ func run(args []string) int {
 		return 1
 	}
 
-	bareVersion := strings.TrimPrefix(version, "v") // upack versions are bare semver
+	bareVersion := strings.TrimPrefix(m.Version, "v") // upack versions are bare semver
 
 	fmt.Printf("ORG=%q\n", m.Feed.Organization)
 	fmt.Printf("FEED=%q\n", m.Feed.Feed)
@@ -93,5 +96,5 @@ func platformFor(m *index.Manifest, goos, goarch string) (*index.Platform, error
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "usage: resolve-plugin <name> <version> <os> <arch> --index <path>")
+	fmt.Fprintln(os.Stderr, "usage: resolve-plugin <name> <os> <arch> --index <path>")
 }
