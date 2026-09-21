@@ -7,6 +7,14 @@ repo. `dongle` (the host CLI) clones this repo, reads a plugin's manifest to
 find its feed coordinates, and downloads the binary from there at install
 time.
 
+`dongle` (the host CLI) never clones this repo directly. On every merge to
+`main`, `azure-pipelines-publish-index.yml` tags the commit with the next
+monotonic `0.0.N` version, archives `plugins/` into `index.tar.gz`, and
+publishes it to the shared feed as the `dongle-index` package; `dongle`
+downloads and TTL-caches that archive (`dongle refresh` forces an update),
+then reads a plugin's manifest out of the cached, extracted copy to find its
+feed coordinates at install time.
+
 There is no JSON Schema for the manifest yet, so this document — plus the
 annotated example below — is the source of truth for the format. If it and
 `validate-manifest`'s behavior ever disagree, treat `validate-manifest` as

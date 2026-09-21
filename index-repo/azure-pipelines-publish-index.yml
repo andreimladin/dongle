@@ -1,0 +1,138 @@
+# Publishes this repo's plugin index (plugins/*.yaml manifests) as a
+# versioned Universal Package to the shared Azure Artifacts feed, so the
+# dongle host CLI can download+cache it instead of git-cloning this repo
+# (see dongle's internal/index and its README's "Index access" section).
+#
+# This file belongs in the INDEX repo, NOT the dongle host repo — it has no
+# Go source of its own; it only tags, tars up plugins/, and publishes it.
+# It complements azure-pipelines-validate.yml (already staged alongside
+# this file): that one gates PRs before merge, this one runs after a merge
+# lands on main and turns the result into something dongle can consume.
+#
+# Version scheme: a monotonic counter expressed as semver 0.0.N (Azure
+# Artifacts Universal Packages require semver, so the counter lives in the
+# patch position; major/minor stay pinned at 0.0). Both the git tag and the
+# published package version are the bare "0.0.N" string — no "v" prefix —
+# so the two never need translating into each other. The pipeline:
+#   1. Fetches tags and finds the highest existing 0.0.* tag.
+#   2. Computes N+1 (or 1, if no 0.0.* tag exists yet).
+#   3. Tags the merge commit "0.0.<N+1>" and pushes that tag.
+#   4. Archives plugins/ into index.tar.gz, with a top-level VERSION file
+#      recording "0.0.<N+1>" alongside it — so dongle can read back which
+#      version it downloaded without needing to parse anything from `az`.
+#   5. Publishes index.tar.gz to the shared feed as a Universal Package
+#      named "dongle-index" (or whatever PACKAGE_NAME below is set to), at
+#      version 0.0.<N+1>.
+#
+# TODO: fill in ORGANIZATION, PROJECT, and FEED below before running this
+# pipeline for real — PACKAGE_NAME defaults to "dongle-index", distinct
+# from any per-plugin package name published to the same feed.
+#
+# TODO: the build service identity behind System.AccessToken (used for
+# both the tag push and the `az artifacts universal publish` call below)
+# needs:
+#   - Contribute access on this repo (Project Settings -> Repositories ->
+#     this repo -> Security), to push the new git tag.
+#   - Feed Contributor rights on FEED (Artifacts -> that feed -> Feed
+#     Settings -> Permissions), to publish the package.
+# Neither is granted by default — both TODOs must be done once, by hand,
+# before this pipeline's first real run.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr: none # this pipeline runs on merge/push to main only, never on a PR itself
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # TODO: set these to your real Azure DevOps org/project + shared feed
+  # before running this pipeline. This should be the SAME shared feed
+  # per-plugin binaries are published to (see docs/publishing-plugins.md)
+  # — dongle-index is just one more package in it, distinguished by name.
+  ORGANIZATION: "TODO-azure-devops-org" # e.g. "acme" (used as https://dev.azure.com/<ORGANIZATION>)
+  PROJECT: "TODO-azure-devops-project" # leave empty ("") for an org-scoped feed
+  FEED: "TODO-shared-feed-name"
+  PACKAGE_NAME: "dongle-index" # must match the package name dongle's build/runtime config points at
+
+steps:
+  - checkout: self
+    persistCredentials: true # needed to `git push` the new tag below
+    fetchDepth: 0 # need full tag history to find the highest existing 0.0.* tag
+
+  - script: |
+      set -euo pipefail
+
+      git fetch --tags --force
+
+      latest=$(git tag --list | grep -E '^0\.0\.[0-9]+$' | sed -E 's/^0\.0\.//' | sort -n | tail -1)
+      if [ -z "$latest" ]; then
+        next=1
+      else
+        next=$((latest + 1))
+      fi
+      new_version="0.0.${next}"
+
+      echo "latest published version: ${latest:-none} -> publishing ${new_version}"
+      echo "##vso[task.setvariable variable=NEW_VERSION]${new_version}"
+    displayName: "Compute next monotonic index version from git tags"
+
+  - script: |
+      set -euo pipefail
+      git config user.name "dongle-index-pipeline"
+      git config user.email "dongle-index-pipeline@users.noreply.github.com"
+      git tag "$(NEW_VERSION)"
+      git push origin "$(NEW_VERSION)"
+    displayName: "Tag $(NEW_VERSION)"
+
+  - script: |
+      set -euo pipefail
+      if [ ! -d plugins ]; then
+        echo "error: no plugins/ directory to archive" >&2
+        exit 1
+      fi
+
+      # VERSION travels inside the archive itself, alongside plugins/, so
+      # dongle can record which index version it downloaded just by reading
+      # a file out of the extracted archive — no need to parse `az` output
+      # or otherwise infer the version out-of-band.
+      echo -n "$(NEW_VERSION)" >VERSION
+
+      tar -czf index.tar.gz VERSION plugins
+      rm -f VERSION
+
+      echo "archived plugins/ (+ VERSION) -> index.tar.gz"
+      tar -tzf index.tar.gz
+    displayName: "Archive plugins/ -> index.tar.gz"
+
+  - script: |
+      set -euo pipefail
+      az extension add --name azure-devops --only-show-errors
+
+      stage=$(mktemp -d)
+      cp index.tar.gz "$stage/"
+
+      args=(artifacts universal publish
+        --organization "https://dev.azure.com/$(ORGANIZATION)"
+        --feed "$(FEED)"
+        --name "$(PACKAGE_NAME)"
+        --version "$(NEW_VERSION)"
+        --path "$stage"
+        --description "dongle plugin index $(NEW_VERSION)")
+      if [ -n "$(PROJECT)" ]; then
+        args+=(--project "$(PROJECT)" --scope project)
+      fi
+
+      echo "publishing $(PACKAGE_NAME)@$(NEW_VERSION) to feed '$(FEED)'..."
+      az artifacts universal publish "${args[@]}"
+
+      rm -rf "$stage"
+    displayName: "Publish $(PACKAGE_NAME) to the shared feed"
+    env:
+      # Auth for `az artifacts universal publish`: the pipeline job's own
+      # build-identity OAuth token. Requires Feed Contributor on FEED — see
+      # the TODO block at the top of this file.
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
