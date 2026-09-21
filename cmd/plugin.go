@@ -52,6 +52,14 @@ var pluginUninstallCmd = &cobra.Command{
 	},
 }
 
+var pluginUpdateCmd = &cobra.Command{
+	Use:   "update <name>",
+	Short: "update an installed plugin to the index's current version",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return exitCode(plugincmd.Run(hostVersion, protocol, append([]string{"update"}, args...)))
+	},
+}
+
 func init() {
-	pluginCmd.AddCommand(pluginListCmd, pluginSearchCmd, pluginInstallCmd, pluginUninstallCmd)
+	pluginCmd.AddCommand(pluginListCmd, pluginSearchCmd, pluginInstallCmd, pluginUninstallCmd, pluginUpdateCmd)
 }

@@ -60,6 +60,23 @@ func SatisfiesHost(hostVersion, constraint string) (bool, error) {
 	return compareSemver(hv, cv) == 0, nil
 }
 
+// CompareVersions compares two plugin/host semver strings (leading "v"
+// optional on either side): negative if a < b, zero if equal, positive if
+// a > b. Shared here so version-ordering logic (e.g. `dongle plugin
+// update`'s newer/equal/older decision) never drifts from the parsing
+// SatisfiesHost itself uses.
+func CompareVersions(a, b string) (int, error) {
+	av, err := parseSemver(a)
+	if err != nil {
+		return 0, err
+	}
+	bv, err := parseSemver(b)
+	if err != nil {
+		return 0, err
+	}
+	return compareSemver(av, bv), nil
+}
+
 func parseSemver(s string) ([3]int, error) {
 	var out [3]int
 	s = strings.TrimPrefix(strings.TrimSpace(s), "v")

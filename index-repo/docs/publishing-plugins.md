@@ -205,7 +205,11 @@ Summarized here for context; see
 version:
 
 - **Version bumps** to an existing plugin are approved by that plugin's
-  owner(s), as listed in `CODEOWNERS`.
+  owner(s), as listed in `CODEOWNERS`. Once a bumped `plugins/<name>.yaml`
+  merges, `dongle plugin update <name>` is how users pick it up: it compares
+  an installed plugin's version against whatever this index currently
+  declares and fetches the new one if the index is ahead (refusing to
+  downgrade if a user somehow has something newer installed already).
 - **New plugins** require central/platform-team review — see the
   walkthrough above.
 - Platform coverage is up to each plugin owner — the validator does not
