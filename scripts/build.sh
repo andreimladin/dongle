@@ -22,15 +22,21 @@
 # extracts it — stdlib `tar`), using the same INDEX_ORG/INDEX_PROJECT/
 # INDEX_FEED/INDEX_PACKAGE that build_binary also bakes into the binary via
 # -ldflags, so the binary and the index its embedded plugins were resolved
-# against always agree. For each embedded plugin name it shells out to
-# tools/resolve-plugin (also build-time-only, not a dongle subcommand) to
-# read that plugin's Azure Artifacts feed coordinates, per-platform package
-# name, and version straight out of its index manifest (plugins/<name>.yaml)
-# — parsed by the exact same internal/index code `dongle plugin install`
-# uses, not reimplemented — then downloads it via `az artifacts universal
-# download`. Fails fast, naming the plugin and platform, if a plugin has no
-# published build for <os>/<arch> rather than silently staging a binary
-# with that default missing.
+# against always agree. That same downloaded archive is ALSO copied verbatim
+# into internal/bootstrap/embedded/index.tar.gz (its VERSION file's value
+# recorded in manifest.json's "index" field), so build_binary's -tags embed
+# bakes a seed catalog into the binary too — internal/index extracts it into
+# the cache on a first run with nothing cached yet, so a released dongle has
+# a working plugin index from its very first run, fully offline (see
+# internal/index.EnsureFresh's embedded-seed precedence). For each embedded
+# plugin name it shells out to tools/resolve-plugin (also build-time-only,
+# not a dongle subcommand) to read that plugin's Azure Artifacts feed
+# coordinates, per-platform package name, and version straight out of its
+# index manifest (plugins/<name>.yaml) — parsed by the exact same
+# internal/index code `dongle plugin install` uses, not reimplemented — then
+# downloads it via `az artifacts universal download`. Fails fast, naming the
+# plugin and platform, if a plugin has no published build for <os>/<arch>
+# rather than silently staging a binary with that default missing.
 #
 # build_binary compiles ONE target's binary from whatever is already staged
 # in internal/bootstrap/embedded/ (run fetch_embedded first, or use
@@ -130,7 +136,26 @@ fetch_embedded() {
 	mkdir -p "$tmp/index"
 	tar -xzf "$index_archive" -C "$tmp/index"
 
+	local index_version=""
+	if [ -f "$tmp/index/VERSION" ]; then
+		index_version=$(tr -d '[:space:]' <"$tmp/index/VERSION")
+	fi
+	if [ -z "$index_version" ]; then
+		echo "error: downloaded index archive $index_archive has no VERSION file" >&2
+		exit 1
+	fi
+
 	clean_embed
+
+	# Stage the index archive itself alongside the plugin defaults so
+	# build_binary's -tags embed picks it up too (see
+	# internal/bootstrap.EmbeddedIndex): a released dongle then has a
+	# working plugin catalog from its very first run, fully offline (see
+	# internal/index's embedded-seed precedence). manifest.json's "index"
+	# field records the version so internal/index and `dongle version` can
+	# tell it apart from one later fetched from the feed.
+	cp "$index_archive" "$EMBED_DIR/index.tar.gz"
+	echo "  staged embedded index (version $index_version)"
 
 	echo "== staging embedded defaults for $goos/$goarch =="
 
@@ -186,15 +211,18 @@ fetch_embedded() {
 	done < <("$TOOLBIN/readconfig" --embedded)
 
 	{
-		printf '[\n'
+		printf '{\n'
+		printf '  "plugins": [\n'
 		local last=$((${#manifest_entries[@]} - 1))
 		local i
 		for i in "${!manifest_entries[@]}"; do
-			printf '  %s' "${manifest_entries[$i]}"
+			printf '    %s' "${manifest_entries[$i]}"
 			[ "$i" -lt "$last" ] && printf ','
 			printf '\n'
 		done
-		printf ']\n'
+		printf '  ],\n'
+		printf '  "index": {"version": "%s"}\n' "$index_version"
+		printf '}\n'
 	} >"$EMBED_DIR/manifest.json"
 
 	rm -rf "$tmp"

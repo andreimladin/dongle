@@ -1,7 +1,16 @@
-// Package index manages the embedded plugin catalog: a versioned
-// "dongle-index" Universal Package (a tar+gzip archive of plugins/*.yaml
-// manifests) downloaded from Azure Artifacts, extracted, and refreshed on
-// a TTL, mapping plugin name -> version -> Azure feed artifact.
+// Package index manages the plugin catalog: a versioned "dongle-index"
+// Universal Package (a tar+gzip archive of plugins/*.yaml manifests)
+// downloaded from Azure Artifacts, extracted, and refreshed on a TTL,
+// mapping plugin name -> version -> Azure feed artifact.
+//
+// A binary built with -tags embed also carries a seed copy of that same
+// archive baked in at build time (see internal/bootstrap.EmbeddedIndex and
+// scripts/build.sh's fetch_embedded). EnsureFresh extracts that seed into
+// the cache on a first run with nothing cached yet, so a released dongle
+// has a working index from its very first run, fully offline; a plain
+// `go build ./cmd` embeds nothing, so that path falls back to a feed
+// download as before. CachedOrigin reports which kind — embedded seed or
+// feed-fetched — is currently in the cache.
 //
 // The feed package identity (org/project/feed/package name) is a
 // build-time build input — baked in via -ldflags at build time (see
@@ -27,6 +36,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/state"
 )
@@ -89,6 +99,16 @@ func indexPackage() string {
 func cacheDir() string    { return filepath.Join(state.DataDir(), "index") }
 func metaPath() string    { return filepath.Join(state.DataDir(), "index.meta") }
 func versionPath() string { return filepath.Join(state.DataDir(), "index.version") }
+func originPath() string  { return filepath.Join(state.DataDir(), "index.origin") }
+
+// Origin values recorded in index.origin alongside the cache, so `dongle
+// version` and callers can tell whether the index in use is still the seed
+// baked into this binary at build time or one actually fetched from the
+// feed.
+const (
+	OriginEmbedded = "embedded"
+	OriginFetched  = "fetched"
+)
 
 var ErrNotFound = errors.New("plugin not found in index")
 
@@ -137,12 +157,24 @@ type Selector struct {
 
 // --- refresh lifecycle --------------------------------------------------------
 
-// EnsureFresh downloads the index if the cache is absent, or re-downloads
-// if the cache is older than ttl. A download failure with an existing
-// cache is a non-fatal warning, so being offline never blocks commands
-// that can run on a slightly stale catalog.
+// EnsureFresh makes sure a usable index is cached locally before a command
+// reads it, following this precedence:
+//
+//   - a fresh cache (within ttl) is used as-is, no feed call;
+//   - no cache at all seeds one from the index archive embedded into this
+//     binary at build time (see internal/bootstrap.EmbeddedIndex and
+//     scripts/build.sh's fetch_embedded) — offline, no feed call — falling
+//     back to a feed download only when nothing was embedded (a plain,
+//     non -tags-embed build);
+//   - a stale cache triggers a feed download to replace it; on failure the
+//     existing cache is kept (a command running on slightly old data beats
+//     one that can't run at all), so being offline never blocks commands
+//     that can run on a slightly stale catalog.
 func EnsureFresh(ttl time.Duration) error {
 	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
+		if seedFromEmbedded() {
+			return nil
+		}
 		return download()
 	}
 	age, err := cacheAge()
@@ -154,9 +186,78 @@ func EnsureFresh(ttl time.Duration) error {
 	return nil
 }
 
-// Refresh forces a download now, ignoring the TTL (`dongle refresh`).
+// Refresh forces a download of the latest index from the feed now,
+// ignoring the TTL (`dongle refresh`). On failure it falls back to
+// whatever is already usable instead of leaving dongle without any index
+// at all — the existing cache if there is one, otherwise the embedded seed
+// baked into this binary — printing a warning either way. It returns an
+// error only when the download failed AND nothing usable could be
+// produced (no cache, no embedded seed).
 func Refresh() error {
-	return download()
+	err := download()
+	if err == nil {
+		return nil
+	}
+	if _, statErr := os.Stat(cacheDir()); statErr == nil {
+		fmt.Fprintf(os.Stderr, "warning: could not refresh index (%v); keeping cached index\n", err)
+		return nil
+	}
+	if seedFromEmbedded() {
+		fmt.Fprintf(os.Stderr, "warning: could not refresh index (%v); seeded from the embedded index\n", err)
+		return nil
+	}
+	return err
+}
+
+// seedFromEmbedded extracts the index archive baked into this binary (see
+// internal/bootstrap.EmbeddedIndex and scripts/build.sh's fetch_embedded)
+// into the cache, so a released binary has a working index from its very
+// first run, fully offline. Returns false — leaving the cache untouched —
+// when nothing was embedded (a plain, non -tags-embed build), so the
+// caller can fall back to a feed download.
+func seedFromEmbedded() bool {
+	archive, version, ok := bootstrap.EmbeddedIndex()
+	if !ok {
+		return false
+	}
+
+	stagingRoot := filepath.Join(state.DataDir(), ".staging")
+	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
+		return false
+	}
+	staging, err := os.MkdirTemp(stagingRoot, "index-embedded-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
+		return false
+	}
+	defer os.RemoveAll(staging)
+
+	extractDir := filepath.Join(staging, "extracted")
+	if err := extractTarGzBytes(archive, extractDir); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not extract embedded index:", err)
+		return false
+	}
+
+	if err := os.RemoveAll(cacheDir()); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
+		return false
+	}
+	if err := os.Rename(extractDir, cacheDir()); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
+		return false
+	}
+
+	if err := os.WriteFile(versionPath(), []byte(version), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not record embedded index version:", err)
+	}
+	if err := writeOrigin(OriginEmbedded); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not record embedded index origin:", err)
+	}
+	if err := touchMeta(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not record embedded index freshness:", err)
+	}
+	return true
 }
 
 // CachedVersion returns the version of the index currently cached (read
@@ -172,6 +273,31 @@ func CachedVersion() (version string, ok bool) {
 		return "", false
 	}
 	return v, true
+}
+
+// CachedOrigin reports whether the currently cached index is the embedded
+// seed baked into this binary (OriginEmbedded) or one fetched from the
+// feed (OriginFetched) — including a cache first seeded from the embedded
+// copy and later replaced by a successful refresh. ok is false when no
+// index is cached at all. A cache with no index.origin file (one written
+// before origin tracking existed) is treated as OriginFetched, since every
+// such cache could only ever have come from the feed.
+func CachedOrigin() (origin string, ok bool) {
+	if _, cok := CachedVersion(); !cok {
+		return "", false
+	}
+	b, err := os.ReadFile(originPath())
+	if err != nil {
+		return OriginFetched, true
+	}
+	if strings.TrimSpace(string(b)) != OriginEmbedded {
+		return OriginFetched, true
+	}
+	return OriginEmbedded, true
+}
+
+func writeOrigin(origin string) error {
+	return os.WriteFile(originPath(), []byte(origin), 0o644)
 }
 
 // download fetches the latest version of the index package from the feed,
@@ -224,6 +350,9 @@ func download() error {
 			return err
 		}
 	}
+	if err := writeOrigin(OriginFetched); err != nil {
+		return err
+	}
 	return touchMeta()
 }
 
@@ -275,16 +404,29 @@ func downloadArchive(destDir string) (string, error) {
 	return filepath.Join(destDir, files[0]), nil
 }
 
-// extractTarGz extracts a tar+gzip archive into destDir, which must not
-// already exist. Rejects entries that would escape destDir ("zip-slip").
+// extractTarGz extracts a tar+gzip archive file into destDir, which must
+// not already exist.
 func extractTarGz(archivePath, destDir string) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	return extractTarGzReader(f, destDir)
+}
 
-	gz, err := gzip.NewReader(f)
+// extractTarGzBytes is extractTarGzReader over an in-memory archive — the
+// index archive embedded into the binary (see seedFromEmbedded) — rather
+// than one just downloaded to disk.
+func extractTarGzBytes(archive []byte, destDir string) error {
+	return extractTarGzReader(bytes.NewReader(archive), destDir)
+}
+
+// extractTarGzReader extracts a tar+gzip stream into destDir, which must
+// not already exist. Rejects entries that would escape destDir
+// ("zip-slip").
+func extractTarGzReader(r io.Reader, destDir string) error {
+	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return err
 	}

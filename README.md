@@ -160,7 +160,10 @@ that the CLI uses for `dongle plugin install` — not reimplemented. It then
 downloads each plugin's binary into `internal/bootstrap/embedded/`
 (git-ignored except for the tracked
 `internal/bootstrap/embedded/.gitkeep` placeholder) and writes
-`internal/bootstrap/embedded/manifest.json`.
+`internal/bootstrap/embedded/manifest.json`. It also copies that same
+downloaded index archive itself into
+`internal/bootstrap/embedded/index.tar.gz`, recording its `VERSION` in
+`manifest.json`'s `"index"` field — see "Embedded plugin index" below.
 
 `build_binary <os> <arch>` then builds with `-tags embed` so
 `internal/bootstrap/bootstrap.go`'s `//go:embed all:embedded` picks up
@@ -180,8 +183,8 @@ embedding logic of its own.
 
 A binary built without `-tags embed` (i.e. anything but `build_binary`'s
 output) links `internal/bootstrap/noop.go` instead, whose
-`InstallDefaults()` is a no-op — no embed dependency, no behavior change,
-nothing staged.
+`InstallDefaults()` (and `EmbeddedIndex()`, see below) are no-ops — no
+embed dependency, no behavior change, nothing staged.
 
 Local usage for one platform:
 
@@ -194,6 +197,43 @@ or the two steps separately:
 ```sh
 ./scripts/build.sh fetch_embedded darwin arm64
 ./scripts/build.sh build_binary darwin arm64
+```
+
+### Embedded plugin index (offline first run)
+
+The same mechanism that embeds default plugins also embeds a seed copy of
+the plugin index itself, so **a released `dongle` binary works fully
+offline from its very first run** — both its default plugins and its
+catalog are already on disk, no feed access needed until you actually want
+something newer.
+
+`internal/bootstrap.EmbeddedIndex()` exposes the staged
+`internal/bootstrap/embedded/index.tar.gz` and its version (from
+`manifest.json`'s `"index"` field) to `internal/index`, mirroring
+`InstallDefaults()`'s plugin-embedding pattern — same `//go:embed all:embedded`
+filesystem, just a different file read out of it. `internal/index.EnsureFresh`
+follows this precedence whenever a command needs the catalog:
+
+1. **Fresh cache** (within the 24h TTL) — used as-is, no feed call.
+2. **No cache at all** — extracted straight from the embedded seed into the
+   cache, entirely offline, no feed call. A plain `go build ./cmd` (no
+   `-tags embed`) has nothing embedded, so this falls back to a feed
+   download instead, same as before this feature.
+3. **`dongle refresh`, or a stale cache** — downloads the latest index from
+   the feed and replaces the cache on success. On failure it falls back to
+   whatever is already usable — the existing cache, or (only if there's no
+   cache yet) the embedded seed — so the CLI always ends up with *some*
+   usable index rather than none at all.
+
+The cache tracks not just the version in use but where it came from
+(`internal/index.CachedOrigin`), so `dongle version` marks an index still on
+its embedded seed as `(embedded)` — a hint that it may be behind and
+`dongle refresh` is worth running once you have network access:
+
+```
+$ dongle version
+dongle 1.4.0 (protocol v1)
+index 2024.03.01.1 (embedded; run `dongle refresh` to check for updates)
 ```
 
 ## What works vs. what's stubbed
@@ -252,14 +292,16 @@ cmd/                    host entry (cobra): main.go, root.go (root command +
                         indexPackage vars + protocol const, injected via
                         -ldflags — calls bootstrap.InstallDefaults(), holds
                         no embedding logic), plugin.go, refresh.go
-internal/bootstrap/    embedded default plugins (see below): bootstrap.go /
-                        noop.go, plus the staged embedded/ payload
+internal/bootstrap/    embedded default plugins + seed index (see above):
+                        bootstrap.go / noop.go, plus the staged embedded/
+                        payload (plugin binaries + index.tar.gz)
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
 internal/plugincmd/    plugin list/search/install/uninstall (+ index resolver)
 internal/index/        feed-archive catalog: downloads + extracts the
-                        versioned dongle-index package, TTL cache, lookups
+                        versioned dongle-index package, TTL cache, lookups,
+                        embedded-seed fallback for offline first run
 tools/resolve-plugin/   build-time-only helper: manifest -> feed coordinates
                         + version for one plugin/platform (not a dongle
                         subcommand) — see "Embedded default plugins" above
@@ -346,9 +388,13 @@ does not manage credentials itself — it shells out to `az`, which
 authenticates however you're already logged in (`az login`), or via
 `AZURE_DEVOPS_EXT_PAT` in CI.
 
-- `dongle refresh` force-downloads the latest index now, ignoring the TTL.
+- `dongle refresh` force-downloads the latest index now, ignoring the TTL —
+  falling back to whatever's already usable (cache or embedded seed) if the
+  feed can't be reached; see "Embedded plugin index" above.
 - `dongle version` prints both the CLI's own version and the version of the
-  index currently cached (or says none is cached yet).
+  index currently cached (marked `(embedded)` if it's still the build-time
+  seed rather than something fetched from the feed), or says none is cached
+  yet.
 
 Dev overrides: `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`,
 and `DONGLE_INDEX_PACKAGE` each override the corresponding value injected at

@@ -20,7 +20,11 @@ var refreshCmd = &cobra.Command{
 			return exitCode(1)
 		}
 		v, _ := index.CachedVersion()
-		fmt.Printf("index refreshed (%s)\n", v)
+		if origin, ok := index.CachedOrigin(); ok && origin == index.OriginEmbedded {
+			fmt.Printf("could not reach the feed; still on the embedded index %s\n", v)
+		} else {
+			fmt.Printf("index refreshed (%s)\n", v)
+		}
 		return nil
 	},
 }

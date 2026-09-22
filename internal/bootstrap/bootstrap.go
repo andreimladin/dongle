@@ -1,11 +1,14 @@
 //go:build embed
 
-// Package bootstrap unpacks the plugins baked into a "batteries-included"
-// release binary (see configs/build.yaml and scripts/build.sh) into the
-// normal plugin store on first run. Everything the //go:embed directive
-// needs — the directive itself and the staged embedded/ payload — lives
-// here because go:embed paths are relative to the source file and can't
-// reach outside this package with "../".
+// Package bootstrap unpacks what's baked into a "batteries-included"
+// release binary (see configs/build.yaml and scripts/build.sh): the
+// default plugins, into the normal plugin store on first run, and the
+// plugin index archive, exposed to internal/index (see EmbeddedIndex) so
+// it can seed its cache offline on a first run with nothing cached yet.
+// Everything the //go:embed directive needs — the directive itself and the
+// staged embedded/ payload — lives here because go:embed paths are
+// relative to the source file and can't reach outside this package with
+// "../".
 package bootstrap
 
 import (
@@ -32,14 +35,44 @@ import (
 //go:embed all:embedded
 var embeddedFS embed.FS
 
-// embeddedDefault is one entry of embedded/manifest.json, written by
-// scripts/build.sh's fetch_embedded from configs/build.yaml.
+// embeddedDefault is one entry of embedded/manifest.json's "plugins" list,
+// written by scripts/build.sh's fetch_embedded from configs/build.yaml.
 type embeddedDefault struct {
 	Name       string          `json:"name"`
 	Version    string          `json:"version"`
 	File       string          `json:"file"`
 	Entrypoint string          `json:"entrypoint,omitempty"`
 	Requires   compat.Requires `json:"requires,omitempty"`
+}
+
+// embeddedManifest is the shape of embedded/manifest.json: the plugin
+// defaults staged for this build, plus the version of the index archive
+// staged alongside them as embedded/index.tar.gz (see EmbeddedIndex).
+type embeddedManifest struct {
+	Plugins []embeddedDefault `json:"plugins"`
+	Index   embeddedIndexMeta `json:"index"`
+}
+
+// embeddedIndexMeta records the version of the plugin index staged as
+// embedded/index.tar.gz. Version is empty when fetch_embedded staged no
+// index for this build.
+type embeddedIndexMeta struct {
+	Version string `json:"version"`
+}
+
+// loadManifest reads and parses embedded/manifest.json. ok is false when
+// nothing was staged for this build (a plain `go build -tags embed` with
+// an empty internal/bootstrap/embedded) or the manifest is invalid.
+func loadManifest() (m embeddedManifest, ok bool) {
+	b, err := fs.ReadFile(embeddedFS, "embedded/manifest.json")
+	if err != nil {
+		return embeddedManifest{}, false // nothing staged for this build
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: embedded defaults manifest is invalid:", err)
+		return embeddedManifest{}, false
+	}
+	return m, true
 }
 
 // InstallDefaults unpacks the plugins baked into this binary (see
@@ -49,16 +82,8 @@ type embeddedDefault struct {
 // with an empty internal/bootstrap/embedded, or a run after the bootstrap
 // flag is already set.
 func InstallDefaults() {
-	manifestBytes, err := fs.ReadFile(embeddedFS, "embedded/manifest.json")
-	if err != nil {
-		return // nothing staged for this build
-	}
-	var defaults []embeddedDefault
-	if err := json.Unmarshal(manifestBytes, &defaults); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: embedded defaults manifest is invalid:", err)
-		return
-	}
-	if len(defaults) == 0 {
+	manifest, ok := loadManifest()
+	if !ok || len(manifest.Plugins) == 0 {
 		return
 	}
 
@@ -71,7 +96,7 @@ func InstallDefaults() {
 		return
 	}
 
-	for _, d := range defaults {
+	for _, d := range manifest.Plugins {
 		if err := installEmbeddedDefault(st, d); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: installing embedded default %s: %v\n", d.Name, err)
 		}
@@ -81,6 +106,25 @@ func InstallDefaults() {
 	if err := st.Save(); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not record embedded defaults bootstrap:", err)
 	}
+}
+
+// EmbeddedIndex returns the plugin-index archive baked into this binary by
+// scripts/build.sh's fetch_embedded (internal/bootstrap/embedded/index.tar.gz)
+// and the version recorded for it in embedded/manifest.json, for
+// internal/index to seed its cache from on a first run with nothing cached
+// yet — entirely offline, no feed call. ok is false when nothing was
+// embedded (a plain `go build -tags embed` with an empty
+// internal/bootstrap/embedded), mirroring InstallDefaults' own no-op case.
+func EmbeddedIndex() (archive []byte, version string, ok bool) {
+	manifest, mok := loadManifest()
+	if !mok || manifest.Index.Version == "" {
+		return nil, "", false
+	}
+	data, err := fs.ReadFile(embeddedFS, "embedded/index.tar.gz")
+	if err != nil {
+		return nil, "", false
+	}
+	return data, manifest.Index.Version, true
 }
 
 // installEmbeddedDefault writes one staged plugin binary to its canonical
