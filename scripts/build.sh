@@ -12,33 +12,35 @@
 #
 # fetch_embedded stages the embedded-defaults payload for ONE target
 # platform into internal/bootstrap/embedded/, ready for build_binary to
-# `-tags embed` into a binary. Needs `az` credentials for the plugin feed
+# `-tags embed` into a binary. Needs `az` credentials for the shared feed
 # (see azure-pipelines-release.yml, which runs this once per matrix leg).
 # configs/build.yaml (see its own header comment) is the single source of
-# truth for the index coordinates and the embedded plugin list — this
+# truth for the index feed identity and the embedded plugin list — this
 # script hardcodes neither: it shells out to tools/readconfig for both. It
-# clones the plugin index fresh into a temp dir every run, using the same
-# INDEX_URL/INDEX_BRANCH that build_binary also bakes into the binary via
-# -ldflags, so the binary and the clone plugins were resolved against always
-# agree. For each embedded plugin it shells out to tools/resolve-plugin
-# (also build-time-only, not a dongle subcommand) to read that plugin's
-# Azure Artifacts feed coordinates and per-platform package name straight
-# out of its index manifest (plugins/<name>.yaml) — parsed by the exact
-# same internal/index code `dongle plugin install` uses, not reimplemented
-# — then downloads it via `az artifacts universal download`. Fails fast,
-# naming the plugin and platform, if a plugin has no published build for
-# <os>/<arch> rather than silently staging a binary with that default
-# missing.
+# downloads the latest "dongle-index" Universal Package fresh into a temp
+# dir every run (via `az artifacts universal download --version "*"`, then
+# extracts it — stdlib `tar`), using the same INDEX_ORG/INDEX_PROJECT/
+# INDEX_FEED/INDEX_PACKAGE that build_binary also bakes into the binary via
+# -ldflags, so the binary and the index its embedded plugins were resolved
+# against always agree. For each embedded plugin name it shells out to
+# tools/resolve-plugin (also build-time-only, not a dongle subcommand) to
+# read that plugin's Azure Artifacts feed coordinates, per-platform package
+# name, and version straight out of its index manifest (plugins/<name>.yaml)
+# — parsed by the exact same internal/index code `dongle plugin install`
+# uses, not reimplemented — then downloads it via `az artifacts universal
+# download`. Fails fast, naming the plugin and platform, if a plugin has no
+# published build for <os>/<arch> rather than silently staging a binary
+# with that default missing.
 #
 # build_binary compiles ONE target's binary from whatever is already staged
 # in internal/bootstrap/embedded/ (run fetch_embedded first, or use
 # build_target). No feed access here: this function only builds, it never
 # touches `az` or the plugin index. hostVersion comes from outside this
 # script: the pipeline sets DONGLE_VERSION (required in CI); locally it
-# falls back to `git describe`, then "dev". Index url/branch come from
-# configs/build.yaml (via tools/readconfig) and are baked in via -ldflags
-# alongside hostVersion, so the resulting binary matches the index
-# coordinates its embedded defaults were actually resolved against.
+# falls back to `git describe`, then "dev". The index feed identity comes
+# from configs/build.yaml (via tools/readconfig) and is baked in via
+# -ldflags alongside hostVersion, so the resulting binary points at the
+# same feed its embedded defaults were actually resolved against.
 #
 # build_target is pure composition (fetch_embedded then build_binary) for a
 # local one-shot build; build_binary itself never calls fetch_embedded.
@@ -46,8 +48,12 @@
 # tools/readconfig and tools/resolve-plugin are built once, up front, to
 # temp binaries rather than `go run` on every invocation inside the loop.
 #
-# Requires: az (logged in to the plugin feed) and git for fetch_embedded;
-# just Go for build_binary.
+# Requires: az (logged in to the shared feed) for fetch_embedded; just Go
+# for build_binary. git is no longer needed for either (fetch_embedded
+# downloads the index from the feed, not a git clone) — build_binary's
+# local hostVersion fallback still shells out to `git describe` if
+# DONGLE_VERSION isn't set, but that's unrelated to the index and optional
+# (falls back further to "dev" if git isn't available either).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -87,35 +93,54 @@ fetch_embedded() {
 	fi
 	local goos="$1" goarch="$2"
 
-	for bin in az git; do
-		if ! command -v "$bin" >/dev/null 2>&1; then
-			echo "error: $bin is required (see script header)" >&2
-			exit 1
-		fi
-	done
+	if ! command -v az >/dev/null 2>&1; then
+		echo "error: az is required (see script header)" >&2
+		exit 1
+	fi
 
-	eval "$("$TOOLBIN/readconfig" --index)" # INDEX_URL, INDEX_BRANCH
+	eval "$("$TOOLBIN/readconfig" --index)" # INDEX_ORG, INDEX_PROJECT, INDEX_FEED, INDEX_PACKAGE
 
 	FETCH_TMP=$(mktemp -d)
 	local tmp="$FETCH_TMP"
 
-	echo "cloning index $INDEX_URL (branch $INDEX_BRANCH)..."
-	if ! git clone --depth 1 --branch "$INDEX_BRANCH" "$INDEX_URL" "$tmp/index" >&2; then
-		echo "error: could not clone index $INDEX_URL" >&2
+	echo "downloading index $INDEX_PACKAGE from feed '$INDEX_FEED' (org $INDEX_ORG)..."
+	local index_dl_dir="$tmp/download"
+	mkdir -p "$index_dl_dir"
+	local index_az_args=(artifacts universal download
+		--organization "https://dev.azure.com/${INDEX_ORG}"
+		--feed "$INDEX_FEED"
+		--name "$INDEX_PACKAGE"
+		--version "*"
+		--path "$index_dl_dir")
+	if [ -n "$INDEX_PROJECT" ]; then
+		index_az_args+=(--project "$INDEX_PROJECT" --scope project)
+	fi
+	if ! az "${index_az_args[@]}"; then
+		echo "error: could not download index package $INDEX_PACKAGE from feed $INDEX_FEED" >&2
 		exit 1
 	fi
+
+	local index_archive
+	index_archive=$(find "$index_dl_dir" -maxdepth 1 -type f)
+	if [ -z "$index_archive" ] || [ "$(printf '%s\n' "$index_archive" | wc -l)" -ne 1 ]; then
+		echo "error: index package $INDEX_PACKAGE did not contain exactly one file" >&2
+		exit 1
+	fi
+
+	mkdir -p "$tmp/index"
+	tar -xzf "$index_archive" -C "$tmp/index"
 
 	clean_embed
 
 	echo "== staging embedded defaults for $goos/$goarch =="
 
 	local manifest_entries=()
-	local name version resolved
-	while IFS=: read -r name version; do
+	local name resolved
+	while IFS= read -r name; do
 		[ -n "$name" ] || continue
 
-		echo "  [$name] resolving feed coordinates for $goos/$goarch..."
-		if ! resolved=$("$TOOLBIN/resolve-plugin" "$name" "$version" "$goos" "$goarch" --index "$tmp/index"); then
+		echo "  [$name] resolving feed coordinates + version for $goos/$goarch..."
+		if ! resolved=$("$TOOLBIN/resolve-plugin" "$name" "$goos" "$goarch" --index "$tmp/index"); then
 			echo "error: [$name] has no published build for $goos/$goarch — cannot embed defaults for this target" >&2
 			exit 1
 		fi
@@ -157,7 +182,7 @@ fetch_embedded() {
 		chmod 0755 "$EMBED_DIR/$file"
 
 		manifest_entries+=("{\"name\":\"${name}\",\"version\":\"${VERSION}\",\"file\":\"${file}\",\"entrypoint\":\"${file}\"}")
-		echo "  [$name] staged as $file"
+		echo "  [$name] staged as $file (version $VERSION)"
 	done < <("$TOOLBIN/readconfig" --embedded)
 
 	{
@@ -193,7 +218,7 @@ build_binary() {
 	fi
 	local version="${DONGLE_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 
-	eval "$("$TOOLBIN/readconfig" --index)" # INDEX_URL, INDEX_BRANCH
+	eval "$("$TOOLBIN/readconfig" --index)" # INDEX_ORG, INDEX_PROJECT, INDEX_FEED, INDEX_PACKAGE
 
 	local out="dist/dongle-${goos}-${goarch}"
 	[ "$goos" = "windows" ] && out="${out}.exe"
@@ -202,8 +227,10 @@ build_binary() {
 	GOOS="$goos" GOARCH="$goarch" go build -tags embed \
 		-ldflags "-s -w \
 			-X main.hostVersion=$version \
-			-X main.indexURL=$INDEX_URL \
-			-X main.indexBranch=$INDEX_BRANCH" \
+			-X main.indexOrg=$INDEX_ORG \
+			-X main.indexProject=$INDEX_PROJECT \
+			-X main.indexFeed=$INDEX_FEED \
+			-X main.indexPackage=$INDEX_PACKAGE" \
 		-o "$out" ./cmd
 
 	echo "done: ${out}"

@@ -1,4 +1,4 @@
-# Example manifest for the dongle-index git repo. The filename (deploy.yaml) is
+# Example manifest for the plugin index repo. The filename (deploy.yaml) is
 # the plugin name: it registers `dongle deploy`. This is the ONLY manifest — a
 # plugin creator authors and PRs this file into the index; there is no
 # plugin.json inside the tarball. Each platform's `package` is the Azure

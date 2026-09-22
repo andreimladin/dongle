@@ -46,7 +46,7 @@ run in CI on every PR:
 
 | function | needs | does |
 |---|---|---|
-| `fetch_embedded <os> <arch>` | `az` (logged in to the plugin feed), `git` | stages `internal/bootstrap/embedded/` for that platform — no compiling |
+| `fetch_embedded <os> <arch>` | `az` (logged in to the shared feed) | stages `internal/bootstrap/embedded/` for that platform — no compiling |
 | `build_binary <os> <arch>` | just Go | compiles `dist/dongle-<os>-<arch>` from whatever is already staged — no feed access |
 | `build_target <os> <arch>` | both of the above | `fetch_embedded` then `build_binary`, for a local one-shot build |
 
@@ -55,16 +55,18 @@ rather than a separate YAML tool.
 
 ### Build inputs are injected at build time (`configs/build.yaml`)
 
-`hostVersion`, the index URL, and the index branch are not hardcoded in Go —
-they're plain vars in `cmd/root.go` (`protocol`, the host↔plugin contract
-version, stays a `const`), stamped in at build time via `-ldflags -X`:
+`hostVersion` and the index feed identity (org/project/feed/package name)
+are not hardcoded in Go — they're plain vars in `cmd/root.go` (`protocol`,
+the host↔plugin contract version, stays a `const`), stamped in at build
+time via `-ldflags -X`:
 
 - A plain `go build ./cmd` leaves them at their zero-value defaults:
-  `hostVersion` is `"dev"` and no index URL is baked in — set
-  `DONGLE_INDEX_URL` (and optionally `DONGLE_INDEX_BRANCH`) at runtime to use
-  `dongle index`/`dongle plugin` commands locally.
-- `scripts/build.sh`'s `build_binary` stamps all three, with the index
-  url/branch read from `configs/build.yaml` (via `tools/readconfig` — see
+  `hostVersion` is `"dev"` and no index org/feed is baked in — set
+  `DONGLE_INDEX_ORG`, `DONGLE_INDEX_FEED` (and optionally
+  `DONGLE_INDEX_PROJECT`/`DONGLE_INDEX_PACKAGE`) at runtime to use `dongle
+  refresh`/`dongle plugin` commands locally.
+- `scripts/build.sh`'s `build_binary` stamps all five, with the index feed
+  identity read from `configs/build.yaml` (via `tools/readconfig` — see
   "Embedded default plugins" below) — the script itself hardcodes none of it.
   `hostVersion` still comes from outside the script — the pipeline's
   `DONGLE_VERSION` — and is **required** in CI (detected via
@@ -111,43 +113,52 @@ not a rewrite of the build itself.
 ### Embedded default plugins (`embed` build tag)
 
 `configs/build.yaml` is the single, reviewable, diffable source of truth for
-which plugins (at which exact versions) ship baked into a release build,
-and which index they're resolved against:
+which plugins ship baked into a release build, and which index feed they're
+resolved against. Versions are deliberately **not** pinned here — each
+plugin's exact version is read from its own manifest in the downloaded
+index at build time, so this list can never drift out of sync with what
+the index actually publishes:
 
 ```yaml
 index:
-  url: https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO] # TODO: set the real index repo URL
-  branch: main
+  organization: "[ORG]" # TODO: set the real Azure DevOps organization
+  project: "" # TODO: set for a project-scoped feed; leave empty for org-scoped
+  feed: "[FEED]" # TODO: set the real shared feed name
+  package: dongle-index
 
 embedded:
-  - { name: tacho, version: 2.4.0 }
-  - { name: bell, version: 1.1.0 }
+  - tacho
+  - bell
 ```
 
 `scripts/build.sh` reads it through `tools/readconfig` — a small
 build-time-only Go helper in this repo (reuses `gopkg.in/yaml.v3`, no `yq`
 dependency), not a `dongle` subcommand — instead of hardcoding any of it:
-`readconfig --index` prints `INDEX_URL`/`INDEX_BRANCH` as `eval`-able shell
-assignments, `readconfig --embedded` prints one `name:version` line per
-plugin. `scripts/build.sh` builds `readconfig` and `tools/resolve-plugin`
-once, up front, to temp binaries rather than `go run` on every call.
+`readconfig --index` prints `INDEX_ORG`/`INDEX_PROJECT`/`INDEX_FEED`/
+`INDEX_PACKAGE` as `eval`-able shell assignments, `readconfig --embedded`
+prints one plugin name per line. `scripts/build.sh` builds `readconfig` and
+`tools/resolve-plugin` once, up front, to temp binaries rather than `go
+run` on every call.
 
-`fetch_embedded <os> <arch>` clones the plugin index fresh into a temp dir
-on every run, using the same `INDEX_URL`/`INDEX_BRANCH` that `build_binary`
-also bakes into the binary via `-ldflags`. For each `embedded` entry it
-shells out to `tools/resolve-plugin` — a small build-time-only Go helper,
-not a `dongle` subcommand: `resolve-plugin <name> <version> <os> <arch>
---index <indexdir>` reads `plugins/<name>.yaml` directly from the freshly
-cloned checkout (no cache, no network) and prints the plugin's Azure
-Artifacts feed coordinates and per-platform package name as `eval`-able
-`KEY="value"` lines — or fails, naming the plugin and platform, if that
-plugin has no published build for `<os>/<arch>`. Nothing about the feed —
-organization, feed name, project, or package naming — is hardcoded in the
-script itself, and the manifest is parsed by the exact same `internal/index`
-code (plus one purely-additive `LoadFile` helper for reading from an
-arbitrary path) that the CLI uses for `dongle plugin install` — not
-reimplemented. It then downloads each plugin's binary into
-`internal/bootstrap/embedded/` (git-ignored except for the tracked
+`fetch_embedded <os> <arch>` downloads the latest `dongle-index` package
+fresh into a temp dir on every run (`az artifacts universal download
+--version "*"`, then extracts it — stdlib `tar`/`gzip`, no `git`), using
+the same `INDEX_ORG`/`INDEX_PROJECT`/`INDEX_FEED`/`INDEX_PACKAGE` that
+`build_binary` also bakes into the binary via `-ldflags`. For each
+`embedded` name it shells out to `tools/resolve-plugin` — a small
+build-time-only Go helper, not a `dongle` subcommand: `resolve-plugin
+<name> <os> <arch> --index <indexdir>` reads `plugins/<name>.yaml` directly
+from the freshly extracted archive (no cache, no network) and prints the
+plugin's Azure Artifacts feed coordinates, per-platform package name, and
+the manifest's own declared version, as `eval`-able `KEY="value"` lines —
+or fails, naming the plugin and platform, if that plugin has no published
+build for `<os>/<arch>`. Nothing about the feed — organization, feed name,
+project, package naming, or version — is hardcoded in the script itself,
+and the manifest is parsed by the exact same `internal/index` code (plus
+one purely-additive `LoadFile` helper for reading from an arbitrary path)
+that the CLI uses for `dongle plugin install` — not reimplemented. It then
+downloads each plugin's binary into `internal/bootstrap/embedded/`
+(git-ignored except for the tracked
 `internal/bootstrap/embedded/.gitkeep` placeholder) and writes
 `internal/bootstrap/embedded/manifest.json`.
 
@@ -202,9 +213,9 @@ Real and testable now:
   in `state.json` moves), so rollback stays possible.
 - **Compatibility gates** (`requires.host` range + `requires.protocol` exact) at
   both install time and dispatch time, from the shared `internal/compat`.
-- **Embedded git index**: `dongle index refresh|status`, 24h TTL cache,
-  offline-tolerant refresh, `plugin search`, and install-by-name resolution up
-  to the download.
+- **Feed-archive index**: `dongle refresh`, `dongle version` (shows the
+  cached index version), 24h TTL cache, offline-tolerant refresh, `plugin
+  search`, and install-by-name resolution up to the download.
 
 Stubbed (the seam is in place):
 
@@ -226,32 +237,36 @@ azure-pipelines-tooling.yml  publishes tools/validate-manifest to the feed;
                         tooling/X.Y.Z, matrixed only over the validator's
                         own runner platforms (not all six host targets)
 configs/                build input consumed by scripts/build.sh
-                        (build.yaml: index url/branch, embedded plugins —
-                        no target platforms, those live in the release
-                        pipeline's matrix) — human-edited, not read at
-                        runtime, not embedded
+                        (build.yaml: index feed identity, embedded plugin
+                        names — no versions, no target platforms; versions
+                        are read from each plugin's manifest at build time,
+                        target platforms live in the release pipeline's
+                        matrix) — human-edited, not read at runtime, not
+                        embedded
 scripts/build.sh        the one release build script: fetch_embedded,
                         build_binary, build_target, dispatched by first arg
                         — see "Embedded default plugins" below
 cmd/                    host entry (cobra): main.go, root.go (root command +
                         plugin dispatch fall-through, plus the
-                        hostVersion/indexURL/indexBranch vars + protocol
-                        const, injected via -ldflags — calls
-                        bootstrap.InstallDefaults(), holds no embedding
-                        logic), plugin.go, index.go
+                        hostVersion/indexOrg/indexProject/indexFeed/
+                        indexPackage vars + protocol const, injected via
+                        -ldflags — calls bootstrap.InstallDefaults(), holds
+                        no embedding logic), plugin.go, refresh.go
 internal/bootstrap/    embedded default plugins (see below): bootstrap.go /
                         noop.go, plus the staged embedded/ payload
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
 internal/plugincmd/    plugin list/search/install/uninstall (+ index resolver)
-internal/index/        embedded git catalog: clone/TTL-pull cache, lookups
+internal/index/        feed-archive catalog: downloads + extracts the
+                        versioned dongle-index package, TTL cache, lookups
 tools/resolve-plugin/   build-time-only helper: manifest -> feed coordinates
-                        for one plugin/platform (not a dongle subcommand) —
-                        see "Embedded default plugins" above
+                        + version for one plugin/platform (not a dongle
+                        subcommand) — see "Embedded default plugins" above
 tools/readconfig/       build-time-only helper: reads configs/build.yaml,
-                        prints the index coords or embedded-plugin list for
-                        scripts/build.sh (not a dongle subcommand)
+                        prints the index feed identity or embedded-plugin
+                        name list for scripts/build.sh (not a dongle
+                        subcommand)
 tools/validate-manifest/  standalone tool (not a dongle subcommand): validates
                         plugins/<name>.yaml manifests using the exact same
                         internal/index types/parsing dongle itself uses, plus
@@ -263,6 +278,9 @@ tools/validate-manifest/  standalone tool (not a dongle subcommand): validates
                         it, in the separate index repo).
 examples/dongle-deploy/  sample cobra plugin (its own module)
 examples/index/          sample index-repo manifest (Azure feed coordinates)
+index-repo/              staged files for the separate plugin index repo
+                        (see its own README.md): manifest validation +
+                        publish-to-feed pipelines, contributor docs
 ```
 
 ## The host↔plugin contract (language-agnostic)
@@ -287,7 +305,7 @@ in `cmd/root.go`), each plugin's semver, and a slow-moving protocol
 version. Host and protocol are separate constants so they release
 independently.
 
-## Publishing a plugin (git index + shared Azure feed)
+## Publishing a plugin (index repo + shared Azure feed)
 
 1. Build the plugin binary for each `os/arch` you support.
 2. Publish each platform's binary as its own Universal Package to the shared
@@ -296,50 +314,55 @@ independently.
    The package name is a plugin-publisher convention — dongle doesn't parse
    it — but a name that encodes plugin/version/os/arch keeps feed browsing
    sane. Each package must contain exactly one file: the binary itself.
-3. PR `plugins/<name>.yaml` to the index repo (version + feed coords + each
-   platform's `selector` and the Universal Package `name` you published it
-   under as `package`). See `examples/index/plugins/deploy.yaml`. At install
-   time dongle downloads that package, takes the single file inside it, and
-   installs it under a canonical entrypoint (`dongle-<name>`) — the file's own
-   name inside the package doesn't matter.
+3. PR `plugins/<name>.yaml` to the (separate) index repo (version + feed
+   coords + each platform's `selector` and the Universal Package `name` you
+   published it under as `package`). See `examples/index/plugins/deploy.yaml`
+   and `index-repo/docs/publishing-plugins.md`. Once merged to that repo's
+   `main`, its own publish pipeline (`index-repo/azure-pipelines-publish-index.yml`)
+   tags the commit with the next monotonic version and republishes the whole
+   `plugins/` directory as the `dongle-index` package — see "Index access"
+   below for how dongle then picks that up. At install time dongle downloads
+   your plugin's package, takes the single file inside it, and installs it
+   under a canonical entrypoint (`dongle-<name>`) — the file's own name
+   inside the package doesn't matter.
 
 If the Azure Artifacts feed is scoped to a project (rather than organization-wide),
 set `feed.project` in the index manifest — `downloadArtifact` passes `--project`
 and `--scope project` to `az artifacts universal download` when it's set.
 Org-scoped feeds omit `feed.project` entirely.
 
-Set the index URL/branch in `configs/build.yaml`'s `index:` section — it's
-injected into the binary at build time (see "Build inputs are injected at
-build time" above). `DONGLE_INDEX_URL` overrides it for dev.
-
 ## Index access
 
-The plugin index is a private Azure DevOps git repo, cloned over HTTPS.
-`dongle` does not manage credentials for it — it shells out to `git`, which
-authenticates using whatever git auth is already set up on your machine, via
-Git Credential Manager (GCM).
+The plugin index is a versioned feed archive, not a git repo `dongle`
+clones: a `dongle-index` Universal Package (`index.tar.gz`, containing
+`plugins/*.yaml` plus a `VERSION` file) published to the shared Azure
+Artifacts feed by the separate index repo's own pipeline (see
+`index-repo/azure-pipelines-publish-index.yml`) on every merge to its
+`main`. `dongle` downloads the **latest** version via `az artifacts
+universal download --version "*"`, extracts it, and caches it locally
+(24h TTL by default — see `internal/plugincmd.IndexTTL`), same as
+`internal/plugincmd.downloadArtifact` does for plugin binaries. `dongle`
+does not manage credentials itself — it shells out to `az`, which
+authenticates however you're already logged in (`az login`), or via
+`AZURE_DEVOPS_EXT_PAT` in CI.
 
-One-time setup:
+- `dongle refresh` force-downloads the latest index now, ignoring the TTL.
+- `dongle version` prints both the CLI's own version and the version of the
+  index currently cached (or says none is cached yet).
 
-1. Install GCM — it's bundled with Git for Windows; on macOS run `brew install
-   --cask git-credential-manager`; on Linux see the [GCM install
-   docs](https://github.com/git-ecosystem/git-credential-manager/blob/main/docs/install.md).
-2. Run `dongle index refresh` (or any `git clone`/`git pull` of the index
-   URL). The first time, GCM opens a browser to sign in with your company
-   Entra ID. After that, GCM caches the token and refreshes it silently —
-   nothing for you to rotate or maintain.
-
-Dev overrides: `DONGLE_INDEX_URL` points at a different index repo,
-`DONGLE_INDEX_BRANCH` pins a different branch (both default to the values
-injected at build time from `configs/build.yaml`'s `index:` section; a
-plain `go build ./cmd` has no index URL baked in at all, so one of these
-overrides is required to use `dongle index`/`dongle plugin` commands).
+Dev overrides: `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`,
+and `DONGLE_INDEX_PACKAGE` each override the corresponding value injected at
+build time from `configs/build.yaml`'s `index:` section; a plain `go build
+./cmd` has no index org/feed baked in at all, so at least `DONGLE_INDEX_ORG`
+and `DONGLE_INDEX_FEED` are required to use `dongle refresh`/`dongle plugin`
+commands.
 
 ## Before you publish this repo
 
 - Replace `andreimladin` with your GitHub/module path everywhere:
   `grep -rl andreimladin . | xargs sed -i 's/andreimladin/<you>/g'`
-- Set `index.url` and `index.branch` in `configs/build.yaml`.
+- Set `organization`, `project`, and `feed` under `index:` in
+  `configs/build.yaml`.
 - Fill in the `LICENSE` year/name.
 
 ## License

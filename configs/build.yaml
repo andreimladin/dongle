@@ -1,15 +1,21 @@
-# build.yaml — the single source of truth for the index coordinates and the
-# embedded plugin list. Build input; read at build time by tools/readconfig,
-# not at runtime.
+# build.yaml — the single source of truth for the index feed identity and
+# the embedded plugin list. Build input; read at build time by
+# tools/readconfig, not at runtime.
 
-# TODO: replace with the real Azure DevOps index git repo URL/branch before
-# running scripts/build.sh for an actual release.
+# TODO: replace with the real Azure Artifacts feed identity the
+# "dongle-index" Universal Package is published to (see the index repo's
+# azure-pipelines-publish-index.yml) before running scripts/build.sh for an
+# actual release. Leave project empty ("") for an org-scoped feed.
 index:
-  url: https://dev.azure.com/[ORG]/[PROJECT]/_git/[REPO] # TODO: set the real index repo URL
-  branch: main
+  organization: "[ORG]" # TODO: set the real Azure DevOps organization
+  project: "" # TODO: set for a project-scoped feed; leave empty for org-scoped
+  feed: "[FEED]" # TODO: set the real shared feed name
+  package: dongle-index # must match PACKAGE_NAME in the index repo's publish pipeline
 
 # Plugins embedded into a release build (requires `-tags embed`; see
-# internal/bootstrap). Reviewable, diffable list of exact versions to bake in.
+# internal/bootstrap). Names only — each plugin's exact version is read
+# from its own manifest in the downloaded index at build time, so this list
+# never drifts out of sync with what the index actually publishes.
 embedded:
-  - { name: tacho, version: 2.4.0 }
-  - { name: bell, version: 1.1.0 }
+  - tacho
+  - bell

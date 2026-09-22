@@ -15,13 +15,15 @@ import (
 // Build-time build inputs, injected via -ldflags at build time (see
 // scripts/build.sh and configs/build.yaml — the human-edited source of
 // truth that script bakes these values from). A plain `go build ./cmd`
-// leaves them at these defaults: hostVersion "dev", no index URL
-// (DONGLE_INDEX_URL is then required to use `dongle index`/`dongle plugin`
-// commands), indexBranch "main".
+// leaves them at these defaults: hostVersion "dev", no index feed identity
+// (DONGLE_INDEX_ORG/DONGLE_INDEX_FEED/DONGLE_INDEX_PACKAGE are then
+// required to use `dongle refresh`/`dongle plugin` commands).
 var (
-	hostVersion = "dev"
-	indexURL    = "" // injected at build; env DONGLE_INDEX_URL overrides
-	indexBranch = "main"
+	hostVersion  = "dev"
+	indexOrg     = ""             // injected at build; env DONGLE_INDEX_ORG overrides
+	indexProject = ""             // injected at build; env DONGLE_INDEX_PROJECT overrides; empty means an org-scoped feed
+	indexFeed    = ""             // injected at build; env DONGLE_INDEX_FEED overrides
+	indexPackage = "dongle-index" // injected at build; env DONGLE_INDEX_PACKAGE overrides
 )
 
 // protocol is the host<->plugin contract version. It is not a build
@@ -53,14 +55,13 @@ var rootCmd = &cobra.Command{
 	Long: `dongle — one CLI, plug in the rest
 
 Builtins:
-  dongle version
+  dongle version                   print the CLI version and the cached index version
+  dongle refresh                   force-download the latest plugin index from the feed
   dongle plugin search             list plugins available in the index
   dongle plugin install <name>     install a plugin from the index
   dongle plugin list               list installed plugins
   dongle plugin update <name>      update an installed plugin to the index's current version
   dongle plugin uninstall <name>
-  dongle index refresh             force-refresh the index cache
-  dongle index status
   dongle support <plugin-name>     show where to get help with a plugin
   dongle <name> [args...]          run an installed plugin`,
 	SilenceErrors: true,
@@ -87,9 +88,14 @@ Builtins:
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "print the host version",
+	Short: "print the CLI version and the cached index version",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Printf("dongle %s (protocol %s)\n", hostVersion, protocol)
+		if v, ok := index.CachedVersion(); ok {
+			fmt.Printf("index %s\n", v)
+		} else {
+			fmt.Println("index: not yet downloaded (run `dongle refresh` or any plugin command)")
+		}
 		return nil
 	},
 }
@@ -100,14 +106,14 @@ func init() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return exitCode(2)
 	})
-	rootCmd.AddCommand(versionCmd, pluginCmd, indexCmd, supportCmd)
+	rootCmd.AddCommand(versionCmd, refreshCmd, pluginCmd, supportCmd)
 }
 
 // Execute runs the root command and returns the process exit code.
 func Execute() int {
-	// Wire the build-time-injected index coordinates (above) into
-	// internal/index before any index/plugin command runs.
-	index.SetDefaults(indexURL, indexBranch)
+	// Wire the build-time-injected index feed identity (above) into
+	// internal/index before any refresh/plugin command runs.
+	index.SetDefaults(indexOrg, indexProject, indexFeed, indexPackage)
 
 	// Batteries-included binaries (built with -tags embed) self-register
 	// their embedded defaults here, before any dispatch happens. Plain
