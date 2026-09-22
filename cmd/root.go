@@ -91,10 +91,15 @@ var versionCmd = &cobra.Command{
 	Short: "print the CLI version and the cached index version",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Printf("dongle %s (protocol %s)\n", hostVersion, protocol)
-		if v, ok := index.CachedVersion(); ok {
-			fmt.Printf("index %s\n", v)
-		} else {
+		v, ok := index.CachedVersion()
+		origin, _ := index.CachedOrigin()
+		switch {
+		case !ok:
 			fmt.Println("index: not yet downloaded (run `dongle refresh` or any plugin command)")
+		case origin == index.OriginEmbedded:
+			fmt.Printf("index %s (embedded; run `dongle refresh` to check for updates)\n", v)
+		default:
+			fmt.Printf("index %s\n", v)
 		}
 		return nil
 	},
