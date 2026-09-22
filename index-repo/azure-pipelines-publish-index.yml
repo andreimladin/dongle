@@ -11,32 +11,23 @@
 # (`trigger: none` / `pr: none` below — queued by hand or the REST API),
 # run against a release/X.Y.Z branch, with the published version read
 # straight from the branch name — NOT auto-incremented, NOT a git tag.
-# This pipeline never writes to git at all.
+# This pipeline never writes to git at all — it only reads the branch
+# it's running on and the working tree's contents.
 #
-# ALL of the actual logic — validating the branch name, extracting the
-# version, archiving plugins/ into index.tar.gz, and publishing it — lives
-# in scripts/publish-index.sh, which this pipeline just calls. That script
-# is also what a maintainer runs by hand (today, while this pipeline isn't
-# wired up / triggerable yet — see its own header comment). Calling the
-# exact same script here means a manual publish and a pipeline publish
-# always produce byte-identical archives under the exact same
-# version-from-branch-name logic, by construction — there is nothing to
-# keep in sync by hand. If you ever need to change that logic, change it
-# in scripts/publish-index.sh, not here.
+# This is the ONLY place that logic lives — there is no separate script
+# for a maintainer to run by hand. Publishing the index means queuing this
+# pipeline against a release/X.Y.Z branch.
 #
 # TODO: fill in ORGANIZATION, PROJECT, and FEED below before running this
 # pipeline for real — PACKAGE_NAME defaults to "dongle-index", distinct
-# from any per-plugin package name published to the same feed. These MUST
-# match scripts/publish-index.sh's own defaults/TODOs — Azure Pipelines
-# exposes every pipeline variable to script steps as an identically named
-# env var, no extra plumbing needed here.
+# from any per-plugin package name published to the same feed.
 #
 # TODO: the build service identity behind System.AccessToken (used by the
-# `az artifacts universal publish` call inside scripts/publish-index.sh)
-# needs Feed Contributor rights on FEED (Artifacts -> that feed -> Feed
-# Settings -> Permissions) — not granted by default. No repo WRITE access
-# is needed at all: this pipeline never pushes to git, only reads the
-# branch it's running on.
+# `az artifacts universal publish` call below) needs Feed Contributor
+# rights on FEED (Artifacts -> that feed -> Feed Settings ->
+# Permissions) — not granted by default. No repo WRITE access is needed
+# at all: this pipeline never pushes to git, only reads the branch it's
+# running on.
 
 trigger: none
 pr: none
@@ -49,8 +40,6 @@ variables:
   # before running this pipeline. This should be the SAME shared feed
   # per-plugin binaries are published to (see docs/publishing-plugins.md)
   # — dongle-index is just one more package in it, distinguished by name.
-  # Must match scripts/publish-index.sh's own TODO defaults — see the note
-  # at the top of this file.
   ORGANIZATION: "TODO-azure-devops-org" # e.g. "acme" (used as https://dev.azure.com/<ORGANIZATION>)
   PROJECT: "TODO-azure-devops-project" # leave empty ("") for an org-scoped feed
   FEED: "TODO-shared-feed-name"
@@ -63,16 +52,75 @@ steps:
     # history — it only reads Build.SourceBranch (below) and the working
     # tree's current contents. A default shallow checkout is enough.
 
-  - script: ./scripts/publish-index.sh
-    displayName: "Publish $(PACKAGE_NAME) (scripts/publish-index.sh)"
+  - script: |
+      set -eu
+      branch="$(Build.SourceBranch)"
+      if [[ ! "$branch" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "error: this pipeline must be run on a release/X.Y.Z branch (got $branch)" >&2
+        exit 1
+      fi
+      version="${branch#refs/heads/release/}"
+      echo "publishing index version $version"
+      echo "##vso[task.setvariable variable=VERSION]$version"
+    displayName: "Guard branch, derive VERSION"
+    # Build.SourceBranch (the FULL ref, e.g. refs/heads/release/0.0.5) is
+    # used rather than Build.SourceBranchName, which truncates any branch
+    # name containing a slash to just its last segment
+    # (release/0.0.5 -> "0.0.5") and would silently defeat the pattern
+    # check above — the same reason dongle's own azure-pipelines-
+    # release.yml Guard job uses Build.SourceBranch.
+
+  - script: |
+      set -euo pipefail
+      if [ ! -d plugins ]; then
+        echo "error: no plugins/ directory to archive" >&2
+        exit 1
+      fi
+
+      # VERSION travels inside the archive itself, alongside plugins/, so
+      # dongle can record which index version it downloaded just by
+      # reading a file out of the extracted archive — no need to infer it
+      # out-of-band. See dongle's internal/index, which reads this file
+      # after extraction.
+      echo -n "$(VERSION)" >VERSION
+      tar -czf index.tar.gz VERSION plugins
+      rm -f VERSION
+
+      echo "archived plugins/ (+ VERSION) -> index.tar.gz:"
+      tar -tzf index.tar.gz
+    displayName: "Archive plugins/ -> index.tar.gz"
+
+  - script: |
+      set -euo pipefail
+      if ! az extension show --name azure-devops >/dev/null 2>&1; then
+        az extension add --name azure-devops --only-show-errors
+      fi
+
+      stage=$(mktemp -d)
+      cp index.tar.gz "$stage/"
+
+      args=(artifacts universal publish
+        --organization "https://dev.azure.com/$(ORGANIZATION)"
+        --feed "$(FEED)"
+        --name "$(PACKAGE_NAME)"
+        --version "$(VERSION)"
+        --path "$stage"
+        --description "dongle plugin index $(VERSION)")
+      if [ -n "$(PROJECT)" ]; then
+        args+=(--project "$(PROJECT)" --scope project)
+      fi
+
+      echo "publishing $(PACKAGE_NAME)@$(VERSION) to feed '$(FEED)'..."
+      az artifacts universal publish "${args[@]}"
+
+      rm -rf "$stage"
+
+      echo
+      echo "== published $(PACKAGE_NAME)@$(VERSION) =="
+    displayName: "Publish $(PACKAGE_NAME) to the shared feed"
     env:
-      # Auth for `az artifacts universal publish`, read directly by
-      # scripts/publish-index.sh (no `az login` / service connection
-      # needed) — the pipeline job's own build-identity OAuth token.
-      # Requires Feed Contributor on FEED — see the TODO block at the top
-      # of this file. ORGANIZATION/PROJECT/FEED/PACKAGE_NAME above, plus
-      # Build.SourceBranch (which scripts/publish-index.sh reads to
-      # extract the version — see its current_branch()), are already
-      # exposed to this step as identically named env vars by Azure
-      # Pipelines, with no extra mapping needed.
+      # Auth for `az artifacts universal publish` — the pipeline job's own
+      # build-identity OAuth token, read directly by `az artifacts` with
+      # no `az login` / service connection needed. Requires Feed
+      # Contributor on FEED — see the TODO block at the top of this file.
       AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)

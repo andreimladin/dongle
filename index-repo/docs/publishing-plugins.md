@@ -6,15 +6,14 @@ itself lives in the Azure Artifacts feed the manifest points at, not in this
 repo.
 
 `dongle` (the host CLI) never clones this repo directly. Publishing a new
-index version is a manual, maintainer-run step (`scripts/publish-index.sh`,
-or `azure-pipelines-publish-index.yml` once pipelines are wired up — see
-that script's own header comment) run against a `release/X.Y.Z` branch:
-the published version is read straight from the branch name (no git tags,
-no auto-increment), and it archives `plugins/` into `index.tar.gz` and
-publishes it to the shared feed as the `dongle-index` package. `dongle`
-downloads and TTL-caches the latest published version (`dongle refresh`
-forces an update), then reads a plugin's manifest out of the cached,
-extracted copy to find its feed coordinates at install time.
+index version means queuing `azure-pipelines-publish-index.yml` by hand
+(manual-only — see its own header comment) against a `release/X.Y.Z`
+branch: the published version is read straight from the branch name (no
+git tags, no auto-increment), and it archives `plugins/` into
+`index.tar.gz` and publishes it to the shared feed as the `dongle-index`
+package. `dongle` downloads and TTL-caches the latest published version
+(`dongle refresh` forces an update), then reads a plugin's manifest out of
+the cached, extracted copy to find its feed coordinates at install time.
 
 There is no JSON Schema for the manifest yet, so this document — plus the
 annotated example below — is the source of truth for the format. If it and
