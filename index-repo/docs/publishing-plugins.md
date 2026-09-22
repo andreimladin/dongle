@@ -3,17 +3,18 @@
 This repo is the **plugin index**: one `plugins/<name>.yaml` manifest per
 plugin. It is the only thing a plugin author PRs here — the plugin's binary
 itself lives in the Azure Artifacts feed the manifest points at, not in this
-repo. `dongle` (the host CLI) clones this repo, reads a plugin's manifest to
-find its feed coordinates, and downloads the binary from there at install
-time.
+repo.
 
-`dongle` (the host CLI) never clones this repo directly. On every merge to
-`main`, `azure-pipelines-publish-index.yml` tags the commit with the next
-monotonic `0.0.N` version, archives `plugins/` into `index.tar.gz`, and
-publishes it to the shared feed as the `dongle-index` package; `dongle`
-downloads and TTL-caches that archive (`dongle refresh` forces an update),
-then reads a plugin's manifest out of the cached, extracted copy to find its
-feed coordinates at install time.
+`dongle` (the host CLI) never clones this repo directly. Publishing a new
+index version is a manual, maintainer-run step (`scripts/publish-index.sh`,
+or `azure-pipelines-publish-index.yml` once pipelines are wired up — see
+that script's own header comment) run against a `release/X.Y.Z` branch:
+the published version is read straight from the branch name (no git tags,
+no auto-increment), and it archives `plugins/` into `index.tar.gz` and
+publishes it to the shared feed as the `dongle-index` package. `dongle`
+downloads and TTL-caches the latest published version (`dongle refresh`
+forces an update), then reads a plugin's manifest out of the cached,
+extracted copy to find its feed coordinates at install time.
 
 There is no JSON Schema for the manifest yet, so this document — plus the
 annotated example below — is the source of truth for the format. If it and
