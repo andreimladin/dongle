@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -9,6 +8,7 @@ import (
 
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/dispatch"
+	"github.com/andreimladin/dongle/internal/hostcmd"
 	"github.com/andreimladin/dongle/internal/index"
 )
 
@@ -31,23 +31,13 @@ var (
 // stays a const rather than joining the vars above.
 const protocol = "v1"
 
-// exitError carries a specific process exit code through cobra's error
-// return path. The command that produced it has already printed its own
-// "error: ..." message to stderr (matching the pre-cobra behavior), so
-// exitError itself carries no message — cobra must not print anything for
-// it (see SilenceErrors below).
-type exitError struct{ code int }
-
-func (e *exitError) Error() string { return "" }
-
-// exitCode turns an internal/*'s int exit code into an error cobra can
-// carry back to Execute, or nil for success.
-func exitCode(code int) error {
-	if code == 0 {
-		return nil
-	}
-	return &exitError{code: code}
-}
+// exitCode ends the process with an internal/* function's exit code. It is
+// the single place dongle exits from a command: every cobra command's Run
+// is a one-line adapter that calls its internal function and hands the
+// returned code here. os.Exit skips deferred functions and cobra's
+// post-run hooks, so internal functions finish their own cleanup before
+// returning a code, and no command uses PostRun/PersistentPostRun.
+func exitCode(code int) { os.Exit(code) }
 
 var rootCmd = &cobra.Command{
 	Use:   "dongle",
@@ -72,44 +62,30 @@ Builtins:
 	// dispatch.Run completely unparsed.
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			return cmd.Help()
+	Run: func(cmd *cobra.Command, args []string) {
+		// Bare `dongle` or -h/--help (not parsed by cobra here, see
+		// DisableFlagParsing) renders cobra's help; anything else is a
+		// plugin name, resolved and exec'd by dispatch.
+		if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+			_ = cmd.Help()
+			return
 		}
-		switch args[0] {
-		case "-h", "--help":
-			return cmd.Help()
-		default:
-			// Not a builtin -> resolve to an installed plugin and exec it.
-			return exitCode(dispatch.Run(hostVersion, protocol, args[0], args[1:]))
-		}
+		exitCode(dispatch.Run(hostVersion, protocol, args[0], args[1:]))
 	},
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "print the CLI version and the cached index version",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("dongle %s (protocol %s)\n", hostVersion, protocol)
-		v, ok := index.CachedVersion()
-		origin, _ := index.CachedOrigin()
-		switch {
-		case !ok:
-			fmt.Println("index: not yet downloaded (run `dongle refresh` or any plugin command)")
-		case origin == index.OriginEmbedded:
-			fmt.Printf("index %s (embedded; run `dongle refresh` to check for updates)\n", v)
-		default:
-			fmt.Printf("index %s\n", v)
-		}
-		return nil
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(hostcmd.Version(hostVersion, protocol, args)) },
 }
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		return exitCode(2)
+		exitCode(2)
+		return err
 	})
 	rootCmd.AddCommand(versionCmd, refreshCmd, pluginCmd, supportCmd)
 }
@@ -125,11 +101,10 @@ func Execute() int {
 	// builds get the no-op in internal/bootstrap/noop.go.
 	bootstrap.InstallDefaults()
 
+	// Commands normally exit via exitCode from their own Run; reaching
+	// here means cobra handled the invocation itself (e.g. --help, or bare
+	// `dongle`), or failed before any Run was called.
 	if err := rootCmd.Execute(); err != nil {
-		var ee *exitError
-		if errors.As(err, &ee) {
-			return ee.code
-		}
 		return 1
 	}
 	return 0

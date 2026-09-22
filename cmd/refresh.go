@@ -1,30 +1,14 @@
 package main
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 
-	"github.com/andreimladin/dongle/internal/index"
+	"github.com/andreimladin/dongle/internal/hostcmd"
 )
 
-// refreshCmd replaces the old `dongle index refresh`: force-downloads the
-// latest index archive from the feed, ignoring the TTL cache.
 var refreshCmd = &cobra.Command{
 	Use:   "refresh",
 	Short: "force-download the latest plugin index from the feed",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := index.Refresh(); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			return exitCode(1)
-		}
-		v, _ := index.CachedVersion()
-		if origin, ok := index.CachedOrigin(); ok && origin == index.OriginEmbedded {
-			fmt.Printf("could not reach the feed; still on the embedded index %s\n", v)
-		} else {
-			fmt.Printf("index refreshed (%s)\n", v)
-		}
-		return nil
-	},
+	Long:  "Force-download the latest plugin index from the feed, ignoring the cache's TTL.",
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(hostcmd.Refresh(args)) },
 }

@@ -1,4 +1,6 @@
-// Package plugincmd implements the `dongle plugin ...` builtins.
+// Package plugincmd implements the `dongle plugin ...` builtins, one
+// exported int-returning function per subcommand (see Fallback, List,
+// Search, Install, Uninstall, Update).
 package plugincmd
 
 import (
@@ -22,39 +24,55 @@ import (
 // (e.g. `dongle support`) stay on the same freshness policy.
 const IndexTTL = 24 * time.Hour
 
-// Run handles `dongle plugin <subcommand>`.
-func Run(hostVersion, protocol string, args []string) int {
+// Each exported function below implements one `dongle plugin <sub>`
+// builtin end to end: it validates its own args (printing a usage line on
+// misuse), does the work, prints its own output and errors, and returns
+// the process exit code. cmd/plugin.go only wires each cobra command to
+// its function and exits with the returned code — there is no string
+// dispatch here or there; cobra's command tree is the routing.
+
+// Fallback handles `dongle plugin` with no subcommand, or with one cobra
+// didn't recognize.
+func Fallback(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: dongle plugin <list|search|install|uninstall> ...")
 		return 2
 	}
-	switch args[0] {
-	case "list":
-		return list()
-	case "search":
-		return search()
-	case "install":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: dongle plugin install <name>")
-			return 2
-		}
-		return install(hostVersion, protocol, args[1])
-	case "uninstall":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: dongle plugin uninstall <name>")
-			return 2
-		}
-		return uninstall(args[1])
-	case "update":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: dongle plugin update <name>")
-			return 2
-		}
-		return update(hostVersion, protocol, args[1])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown plugin subcommand %q\n", args[0])
+	fmt.Fprintf(os.Stderr, "unknown plugin subcommand %q\n", args[0])
+	return 2
+}
+
+// List handles `dongle plugin list`. Extra args are ignored.
+func List(args []string) int { return list() }
+
+// Search handles `dongle plugin search`. Extra args are ignored.
+func Search(args []string) int { return search() }
+
+// Install handles `dongle plugin install <name>`.
+func Install(hostVersion, protocol string, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: dongle plugin install <name>")
 		return 2
 	}
+	return install(hostVersion, protocol, args[0])
+}
+
+// Uninstall handles `dongle plugin uninstall <name>`.
+func Uninstall(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: dongle plugin uninstall <name>")
+		return 2
+	}
+	return uninstall(args[0])
+}
+
+// Update handles `dongle plugin update <name>`.
+func Update(hostVersion, protocol string, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: dongle plugin update <name>")
+		return 2
+	}
+	return update(hostVersion, protocol, args[0])
 }
 
 // list shows what's installed (from state.json — never touches the network).

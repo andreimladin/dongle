@@ -6,58 +6,50 @@ import (
 	"github.com/andreimladin/dongle/internal/plugincmd"
 )
 
-// pluginCmd's own RunE only fires when cobra's Find couldn't match a deeper
-// subcommand (no subcommand given, or an unrecognized one) — the known
-// subcommands below are matched and handled directly by cobra. Either way
-// the args are handed to plugincmd.Run exactly as the old hand-rolled
-// switch did, so usage text and exit codes are unchanged.
+// Each command below is a one-line adapter: cobra's command tree routes to
+// it, it calls the matching internal/plugincmd function, and exits with
+// the returned code. Arg validation, output and errors all live in
+// plugincmd.
+
+// pluginCmd's own Run only fires when cobra's Find couldn't match a
+// subcommand (none given, or an unrecognized one); ArbitraryArgs lets that
+// case reach plugincmd.Fallback instead of a cobra error.
 var pluginCmd = &cobra.Command{
 	Use:   "plugin",
 	Short: "manage plugins",
+	Long:  "Manage installed plugins: search the index, install, list, update and uninstall.",
 	Args:  cobra.ArbitraryArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Run(hostVersion, protocol, args))
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(plugincmd.Fallback(args)) },
 }
 
 var pluginListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "list installed plugins",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Run(hostVersion, protocol, []string{"list"}))
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(plugincmd.List(args)) },
 }
 
 var pluginSearchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "list plugins available in the index",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Run(hostVersion, protocol, []string{"search"}))
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(plugincmd.Search(args)) },
 }
 
 var pluginInstallCmd = &cobra.Command{
 	Use:   "install <name>",
 	Short: "install a plugin from the index",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Run(hostVersion, protocol, append([]string{"install"}, args...)))
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(plugincmd.Install(hostVersion, protocol, args)) },
 }
 
 var pluginUninstallCmd = &cobra.Command{
 	Use:   "uninstall <name>",
 	Short: "uninstall a plugin",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Run(hostVersion, protocol, append([]string{"uninstall"}, args...)))
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(plugincmd.Uninstall(args)) },
 }
 
 var pluginUpdateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "update an installed plugin to the index's current version",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Run(hostVersion, protocol, append([]string{"update"}, args...)))
-	},
+	Run:   func(cmd *cobra.Command, args []string) { exitCode(plugincmd.Update(hostVersion, protocol, args)) },
 }
 
 func init() {
