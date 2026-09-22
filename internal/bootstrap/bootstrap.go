@@ -75,15 +75,22 @@ func loadManifest() (m embeddedManifest, ok bool) {
 	return m, true
 }
 
-// InstallDefaults unpacks the plugins baked into this binary (see
-// configs/build.yaml and scripts/build.sh) into the plugin store on first
-// run only, then records that in state so it never runs again. It is a
-// no-op when nothing was staged — either a plain `go build -tags embed`
-// with an empty internal/bootstrap/embedded, or a run after the bootstrap
-// flag is already set.
-func InstallDefaults() {
+// InstallDefaults unpacks what's baked into this binary (see
+// configs/build.yaml and scripts/build.sh) on first run only — seeding the
+// embedded index into the cache via seedIndex, then placing each embedded
+// plugin in the plugin store — then records that in state so it never
+// runs again. seedIndex is passed in by the caller (internal/index's
+// SeedEmbedded) because internal/index imports this package, not the
+// other way round.
+//
+// Since that first run does real work, it reports progress on stderr (it
+// is diagnostic chatter, not command output, so stdout stays clean for
+// piped use). It is a silent no-op when nothing was staged — a plain
+// `go build -tags embed` with an empty internal/bootstrap/embedded — or on
+// any run after the bootstrap flag is already set.
+func InstallDefaults(seedIndex func()) {
 	manifest, ok := loadManifest()
-	if !ok || len(manifest.Plugins) == 0 {
+	if !ok || (len(manifest.Plugins) == 0 && manifest.Index.Version == "") {
 		return
 	}
 
@@ -96,7 +103,13 @@ func InstallDefaults() {
 		return
 	}
 
+	if manifest.Index.Version != "" {
+		fmt.Fprintln(os.Stderr, "Initializing plugin index...")
+		seedIndex()
+	}
+
 	for _, d := range manifest.Plugins {
+		fmt.Fprintf(os.Stderr, "Installing %s...\n", d.Name)
 		if err := installEmbeddedDefault(st, d); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: installing embedded default %s: %v\n", d.Name, err)
 		}
@@ -106,6 +119,7 @@ func InstallDefaults() {
 	if err := st.Save(); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not record embedded defaults bootstrap:", err)
 	}
+	fmt.Fprintln(os.Stderr, "Initialization complete.")
 }
 
 // EmbeddedIndex returns the plugin-index archive baked into this binary by

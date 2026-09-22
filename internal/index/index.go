@@ -209,6 +209,17 @@ func Refresh() error {
 	return err
 }
 
+// SeedEmbedded seeds the cache from the index archive embedded into this
+// binary when nothing is cached yet, and is a no-op otherwise. First-run
+// bootstrap (internal/bootstrap.InstallDefaults) calls it so the index is
+// extracted up front, with progress shown, rather than lazily and silently
+// by the first command that reads it.
+func SeedEmbedded() {
+	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
+		seedFromEmbedded()
+	}
+}
+
 // seedFromEmbedded extracts the index archive baked into this binary (see
 // internal/bootstrap.EmbeddedIndex and scripts/build.sh's fetch_embedded)
 // into the cache, so a released binary has a working index from its very

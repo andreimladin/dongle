@@ -96,10 +96,11 @@ func Execute() int {
 	// internal/index before any refresh/plugin command runs.
 	index.SetDefaults(indexOrg, indexProject, indexFeed, indexPackage)
 
-	// Batteries-included binaries (built with -tags embed) self-register
-	// their embedded defaults here, before any dispatch happens. Plain
-	// builds get the no-op in internal/bootstrap/noop.go.
-	bootstrap.InstallDefaults()
+	// Batteries-included binaries (built with -tags embed) seed their
+	// embedded index and self-register their embedded defaults here on
+	// first run, before any dispatch happens. Plain builds get the no-op
+	// in internal/bootstrap/noop.go.
+	bootstrap.InstallDefaults(index.SeedEmbedded)
 
 	// Commands normally exit via exitCode from their own Run; reaching
 	// here means cobra handled the invocation itself (e.g. --help, or bare
