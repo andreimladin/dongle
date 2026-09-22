@@ -1,43 +1,36 @@
 #!/usr/bin/env bash
 # Manual, local equivalent of ../azure-pipelines-publish-index.yml — what a
 # maintainer runs by hand today (the pipeline isn't wired up / triggerable
-# yet) to do exactly what that pipeline will do once it is: archive
-# plugins/ (+ a VERSION file) into index.tar.gz and publish it to the
-# shared feed as the dongle-index Universal Package.
-#
-# Mirrors the dongle host repo's own release pattern (see its
-# scripts/build.sh + azure-pipelines-release.yml / azure-pipelines-
-# tooling.yml): run this against a release/X.Y.Z branch, and the version
-# published is read straight from the branch name — NOT auto-incremented,
-# NOT a git tag. This script never writes to git at all (no tag, no
-# push, no commit) — it only reads the current branch name and the
-# working tree's contents.
+# yet) to do exactly what that pipeline will do once it is: tag the next
+# monotonic 0.0.N version, archive plugins/ (+ a VERSION file) into
+# index.tar.gz, and publish it to the shared feed as the dongle-index
+# Universal Package.
 #
 # This script IS the shared implementation, not a parallel one:
 # azure-pipelines-publish-index.yml calls this same script for all of the
-# branch-validation/version-extraction/archive/publish logic below (with
-# ORGANIZATION/PROJECT/FEED/PACKAGE_NAME set from its own variables block,
-# and AZURE_DEVOPS_EXT_PAT already in the environment instead of an
+# version-compute/tag/archive/publish logic below (with ORGANIZATION/
+# PROJECT/FEED/PACKAGE_NAME set from its own variables block, and
+# AZURE_DEVOPS_EXT_PAT already in the environment instead of an
 # interactive `az login`) — so a manual run and a pipeline run always
-# produce byte-identical archives under the exact same version-from-
-# branch-name logic. Do not duplicate or reimplement this logic elsewhere;
-# if the pipeline's needs and this script's ever diverge, change it here
-# and let the pipeline pick it up, not the other way around.
+# produce byte-identical archives under the exact same versioning logic.
+# Do not duplicate or reimplement this logic elsewhere; if the pipeline's
+# needs and this script's ever diverge, change it here and let the
+# pipeline pick it up, not the other way around.
 #
 # Auth: uses whatever the caller already has.
 #   - Interactively (a maintainer's machine): run `az login` first — this
 #     script does not log you in itself.
 #   - From the pipeline: AZURE_DEVOPS_EXT_PAT (System.AccessToken) is
-#     already set in the environment, and `az artifacts` picks it up on
-#     its own, no `az login` needed — see the "Two different auth paths"
-#     note in azure-pipelines-validate.yml for the same pattern used
-#     there. No git auth is needed at all: this script never pushes.
+#     already set in the environment, and `az artifacts`/`az repos` pick
+#     it up on their own, no `az login` needed — see the "Two different
+#     auth paths" note in azure-pipelines-validate.yml for the same
+#     pattern used there. The git tag push instead relies on the
+#     pipeline's `checkout: self, persistCredentials: true`.
 #
 # Requires: az (with the azure-devops extension: `az extension add --name
 # azure-devops`), git, tar.
 #
-# Usage (from a release/X.Y.Z branch, e.g. release/0.0.5):
-#   ./scripts/publish-index.sh
+# Usage: ./scripts/publish-index.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -59,45 +52,51 @@ for bin in az git tar; do
 	fi
 done
 
-# current_branch prefers Azure Pipelines' own full source-ref variable
-# (Build.SourceBranch, exposed to script steps as BUILD_SOURCEBRANCH) over
-# git, for two reasons: a pipeline checkout typically lands in detached
-# HEAD (where `git rev-parse --abbrev-ref HEAD` would report "HEAD", not
-# the real branch), and Build.SourceBranchName — the OTHER predefined
-# variable, easy to reach for instead — truncates any branch name
-# containing a slash to just its last segment (release/0.0.5 -> "0.0.5"),
-# which would silently defeat the release/X.Y.Z pattern check below. This
-# mirrors azure-pipelines-release.yml's own Guard job, which uses
-# Build.SourceBranch for exactly the same reason.
-current_branch() {
-	if [ -n "${BUILD_SOURCEBRANCH:-}" ]; then
-		echo "${BUILD_SOURCEBRANCH#refs/heads/}"
-	else
-		git rev-parse --abbrev-ref HEAD
-	fi
-}
-
-# determine_version fails fast unless the current branch matches
-# release/X.Y.Z, then returns the X.Y.Z suffix — this IS the version
-# that gets published, verbatim: no auto-increment, no reading git tags.
-determine_version() {
+# guard_clean_main refuses to publish unless HEAD is main and the working
+# tree is clean, so a manual publish always corresponds to a clean,
+# committed state on main — never a half-finished local edit or a feature
+# branch. BUILD_SOURCEBRANCHNAME (set by Azure Pipelines) is checked first
+# because a pipeline's `checkout: self` typically leaves the repo in
+# detached HEAD, where `git rev-parse --abbrev-ref HEAD` would report
+# "HEAD" rather than "main" even on a legitimate main-branch build.
+guard_clean_main() {
 	local branch
-	branch=$(current_branch)
-	if [[ ! "$branch" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-		echo "error: must be run on a release/X.Y.Z branch (got '$branch')" >&2
+	if [ -n "${BUILD_SOURCEBRANCHNAME:-}" ]; then
+		branch="$BUILD_SOURCEBRANCHNAME"
+	else
+		branch=$(git rev-parse --abbrev-ref HEAD)
+	fi
+	if [ "$branch" != "main" ]; then
+		echo "error: refusing to publish from '$branch' — this must be run on main" >&2
 		exit 1
 	fi
-	echo "${branch#release/}"
-}
-
-# guard_clean refuses to publish unless the working tree is clean, so the
-# published archive always matches a clean, committed state — never a
-# half-finished local edit.
-guard_clean() {
 	if [ -n "$(git status --porcelain)" ]; then
 		echo "error: working tree is dirty — commit or stash changes before publishing" >&2
 		exit 1
 	fi
+}
+
+# next_version reads the highest existing 0.0.* tag and returns the next
+# monotonic value as bare semver 0.0.<N+1> (or 0.0.1 if none exist yet).
+next_version() {
+	git fetch --tags --force >&2
+
+	local latest
+	latest=$(git tag --list | grep -E '^0\.0\.[0-9]+$' | sed -E 's/^0\.0\.//' | sort -n | tail -1)
+
+	local next
+	if [ -z "$latest" ]; then
+		next=1
+	else
+		next=$((latest + 1))
+	fi
+	echo "0.0.${next}"
+}
+
+tag_and_push() {
+	local version="$1"
+	git tag "$version"
+	git push origin "$version"
 }
 
 # archive_plugins writes index.tar.gz into out_dir, containing plugins/
@@ -137,11 +136,14 @@ publish_archive() {
 }
 
 main() {
-	local version
-	version=$(determine_version)
-	echo "publishing version: ${version}"
+	guard_clean_main
 
-	guard_clean
+	local version
+	version=$(next_version)
+	echo "next version: ${version}"
+
+	tag_and_push "$version"
+	echo "tagged and pushed ${version}"
 
 	local stage
 	stage=$(mktemp -d)

@@ -4,42 +4,46 @@
 # (see dongle's internal/index and its README's "Index access" section).
 #
 # This file belongs in the INDEX repo, NOT the dongle host repo — it has no
-# Go source of its own.
+# Go source of its own. It complements azure-pipelines-validate.yml
+# (already staged alongside this file): that one gates PRs before merge,
+# this one runs after a merge lands on main and turns the result into
+# something dongle can consume.
 #
-# Mirrors the dongle host repo's own release pattern (see its
-# azure-pipelines-release.yml / azure-pipelines-tooling.yml): manual-only
-# (`trigger: none` / `pr: none` below — queued by hand or the REST API),
-# run against a release/X.Y.Z branch, with the published version read
-# straight from the branch name — NOT auto-incremented, NOT a git tag.
-# This pipeline never writes to git at all.
-#
-# ALL of the actual logic — validating the branch name, extracting the
-# version, archiving plugins/ into index.tar.gz, and publishing it — lives
-# in scripts/publish-index.sh, which this pipeline just calls. That script
-# is also what a maintainer runs by hand (today, while this pipeline isn't
-# wired up / triggerable yet — see its own header comment). Calling the
-# exact same script here means a manual publish and a pipeline publish
-# always produce byte-identical archives under the exact same
-# version-from-branch-name logic, by construction — there is nothing to
-# keep in sync by hand. If you ever need to change that logic, change it
-# in scripts/publish-index.sh, not here.
+# ALL of the actual logic — computing the next monotonic version, tagging
+# and pushing it, archiving plugins/ into index.tar.gz, and publishing it —
+# lives in scripts/publish-index.sh, which this pipeline just calls. That
+# script is also what a maintainer runs by hand (today, while this
+# pipeline isn't wired up / triggerable yet — see its own header comment).
+# Calling the exact same script here means a manual publish and a pipeline
+# publish always produce byte-identical archives under the exact same
+# versioning logic, by construction — there is nothing to keep in sync by
+# hand. If you ever need to change the versioning or archiving logic,
+# change it in scripts/publish-index.sh, not here.
 #
 # TODO: fill in ORGANIZATION, PROJECT, and FEED below before running this
-# pipeline for real — PACKAGE_NAME defaults to "dongle-index", distinct
+# pipeline for real -- PACKAGE_NAME defaults to "dongle-index", distinct
 # from any per-plugin package name published to the same feed. These MUST
-# match scripts/publish-index.sh's own defaults/TODOs — Azure Pipelines
-# exposes every pipeline variable to script steps as an identically named
-# env var, no extra plumbing needed here.
+# match scripts/publish-index.sh's own defaults/TODOs, since that script
+# is what actually reads them (as env vars — Azure Pipelines exposes every
+# pipeline variable to script steps as an identically named env var, no
+# extra plumbing needed here).
 #
-# TODO: the build service identity behind System.AccessToken (used by the
-# `az artifacts universal publish` call inside scripts/publish-index.sh)
-# needs Feed Contributor rights on FEED (Artifacts -> that feed -> Feed
-# Settings -> Permissions) — not granted by default. No repo WRITE access
-# is needed at all: this pipeline never pushes to git, only reads the
-# branch it's running on.
+# TODO: the build service identity behind System.AccessToken (used for
+# both the tag push and the `az artifacts universal publish` call inside
+# scripts/publish-index.sh) needs:
+#   - Contribute access on this repo (Project Settings -> Repositories ->
+#     this repo -> Security), to push the new git tag.
+#   - Feed Contributor rights on FEED (Artifacts -> that feed -> Feed
+#     Settings -> Permissions), to publish the package.
+# Neither is granted by default — both TODOs must be done once, by hand,
+# before this pipeline's first real run.
 
-trigger: none
-pr: none
+trigger:
+  branches:
+    include:
+      - main
+
+pr: none # this pipeline runs on merge/push to main only, never on a PR itself
 
 pool:
   vmImage: ubuntu-latest
@@ -58,10 +62,8 @@ variables:
 
 steps:
   - checkout: self
-    # No persistCredentials, no fetchDepth override: this pipeline never
-    # writes to git (no tag, no push, no commit) and doesn't need tag
-    # history — it only reads Build.SourceBranch (below) and the working
-    # tree's current contents. A default shallow checkout is enough.
+    persistCredentials: true # needed to `git push` the new tag (scripts/publish-index.sh)
+    fetchDepth: 0 # need full tag history to find the highest existing 0.0.* tag
 
   - script: ./scripts/publish-index.sh
     displayName: "Publish $(PACKAGE_NAME) (scripts/publish-index.sh)"
@@ -70,9 +72,7 @@ steps:
       # scripts/publish-index.sh (no `az login` / service connection
       # needed) — the pipeline job's own build-identity OAuth token.
       # Requires Feed Contributor on FEED — see the TODO block at the top
-      # of this file. ORGANIZATION/PROJECT/FEED/PACKAGE_NAME above, plus
-      # Build.SourceBranch (which scripts/publish-index.sh reads to
-      # extract the version — see its current_branch()), are already
-      # exposed to this step as identically named env vars by Azure
-      # Pipelines, with no extra mapping needed.
+      # of this file. ORGANIZATION/PROJECT/FEED/PACKAGE_NAME above are
+      # already exposed to this step as identically named env vars by
+      # Azure Pipelines, with no extra mapping needed.
       AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
