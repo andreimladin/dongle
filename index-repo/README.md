@@ -9,7 +9,8 @@ repo's root (it already mirrors the layout: `docs/` nests the same way).
 | file | goes to (index repo) |
 |---|---|
 | `azure-pipelines-validate.yml` | repo root — PR + scheduled manifest validation pipeline |
-| `azure-pipelines-publish-index.yml` | repo root — on merge to main, tags the next monotonic `0.0.N` version, archives `plugins/` into `index.tar.gz`, and publishes it to the shared feed as the `dongle-index` package (what dongle's CLI actually downloads — see below) |
+| `azure-pipelines-publish-index.yml` | repo root — on merge to main, tags the next monotonic `0.0.N` version, archives `plugins/` into `index.tar.gz`, and publishes it to the shared feed as the `dongle-index` package (what dongle's CLI actually downloads — see below). Just a thin wrapper around `scripts/publish-index.sh`. |
+| `scripts/publish-index.sh` | `scripts/` — the actual tag/archive/publish logic, runnable by hand from a maintainer's machine (`az login`) while the pipeline above isn't wired up yet; the pipeline calls this exact same script, so a manual publish and a pipeline publish are always byte-identical |
 | `CONTRIBUTING.md` | repo root — concise front door: what this repo is, how to contribute, governance summary |
 | `CODEOWNERS` | repo root — per-plugin ownership |
 | `PULL_REQUEST_TEMPLATE.md` | repo root — manifest PR checklist |
