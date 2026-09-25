@@ -12,7 +12,7 @@ branch: the published version is read straight from the branch name (no
 git tags, no auto-increment), and it archives `plugins/` into
 `index.tar.gz` and publishes it to the shared feed as the `dongle-index`
 package. `dongle` downloads and TTL-caches the latest published version
-(`dongle refresh` forces an update), then reads a plugin's manifest out of
+(`dongle sync` forces an update), then reads a plugin's manifest out of
 the cached, extracted copy to find its feed coordinates at install time.
 
 There is no JSON Schema for the manifest yet, so this document — plus the
@@ -38,7 +38,7 @@ name: deploy
 # version (upack versions are bare semver, no "v").
 version: v2.3.1
 
-# One-line description shown by `dongle plugin search`.
+# One-line description shown by `dongle search`.
 shortDescription: Deploy services to the platform
 
 # Compatibility gate, checked by the host before install AND before every
@@ -86,7 +86,7 @@ Field-by-field:
 |---|---|---|
 | `name` | yes | must equal the filename stem |
 | `version` | yes | valid semver, `v` prefix optional |
-| `shortDescription` | no | shown by `dongle plugin search`; omitting it just leaves that column blank |
+| `shortDescription` | no | shown by `dongle search`; omitting it just leaves that column blank |
 | `requires.host` | no | `""` means "any host version" |
 | `requires.protocol` | no | `""` means "any protocol" — you almost always want to set this |
 | `feed.organization` | yes | Azure DevOps org |
@@ -214,7 +214,7 @@ version:
 
 - **Version bumps** to an existing plugin are approved by that plugin's
   owner(s), as listed in `CODEOWNERS`. Once a bumped `plugins/<name>.yaml`
-  merges, `dongle plugin update <name>` is how users pick it up: it compares
+  merges, `dongle upgrade <name>` is how users pick it up: it compares
   an installed plugin's version against whatever this index currently
   declares and fetches the new one if the index is ahead (refusing to
   downgrade if a user somehow has something newer installed already).

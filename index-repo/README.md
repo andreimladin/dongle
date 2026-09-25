@@ -22,7 +22,7 @@ branch: whichever version the branch name names is what gets published,
 verbatim — no git tags, no auto-increment, no git writes at all. That's
 what turns this repo's `plugins/` into something dongle can fetch: a
 versioned `index.tar.gz` Universal Package in the shared feed, TTL-cached
-locally and refreshed with `dongle refresh`.
+locally and refreshed with `dongle sync`.
 
 See `docs/publishing-plugins.md` for the manifest format itself, and
 `tools/validate-manifest` (`../tools/validate-manifest` from here) in this

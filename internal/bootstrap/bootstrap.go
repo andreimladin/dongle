@@ -20,7 +20,6 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/state"
 )
 
@@ -35,21 +34,11 @@ import (
 //go:embed all:embedded
 var embeddedFS embed.FS
 
-// embeddedDefault is one entry of embedded/manifest.json's "plugins" list,
-// written by scripts/build.sh's fetch_embedded from configs/build.yaml.
-type embeddedDefault struct {
-	Name       string          `json:"name"`
-	Version    string          `json:"version"`
-	File       string          `json:"file"`
-	Entrypoint string          `json:"entrypoint,omitempty"`
-	Requires   compat.Requires `json:"requires,omitempty"`
-}
-
 // embeddedManifest is the shape of embedded/manifest.json: the plugin
 // defaults staged for this build, plus the version of the index archive
 // staged alongside them as embedded/index.tar.gz (see EmbeddedIndex).
 type embeddedManifest struct {
-	Plugins []embeddedDefault `json:"plugins"`
+	Plugins []Default         `json:"plugins"`
 	Index   embeddedIndexMeta `json:"index"`
 }
 
@@ -75,37 +64,51 @@ func loadManifest() (m embeddedManifest, ok bool) {
 	return m, true
 }
 
-// InstallDefaults unpacks the plugins baked into this binary (see
-// configs/build.yaml and scripts/build.sh) into the plugin store on first
-// run only, then records that in state so it never runs again. It is a
-// no-op when nothing was staged — either a plain `go build -tags embed`
-// with an empty internal/bootstrap/embedded, or a run after the bootstrap
-// flag is already set.
-func InstallDefaults() {
+// PendingDefaults returns the default plugins baked into this binary (see
+// configs/build.yaml and scripts/build.sh) that still need unpacking into
+// the plugin store — all of them on first run, none afterwards. It returns
+// nil when nothing was staged (a plain `go build -tags embed` with an
+// empty internal/bootstrap/embedded) or the bootstrap already happened.
+// The caller installs each with InstallDefault, then calls
+// MarkDefaultsBootstrapped so this never runs again.
+func PendingDefaults() []Default {
 	manifest, ok := loadManifest()
 	if !ok || len(manifest.Plugins) == 0 {
-		return
+		return nil
 	}
-
 	st, err := state.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not load state for embedded defaults:", err)
-		return
+		return nil
 	}
 	if st.DefaultsBootstrapped {
-		return
+		return nil
 	}
+	return manifest.Plugins
+}
 
-	for _, d := range manifest.Plugins {
-		if err := installEmbeddedDefault(st, d); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: installing embedded default %s: %v\n", d.Name, err)
-		}
+// InstallDefault writes one embedded default plugin to its canonical
+// on-disk location and records it in state.
+func InstallDefault(d Default) error {
+	st, err := state.Load()
+	if err != nil {
+		return err
 	}
+	if err := installEmbeddedDefault(st, d); err != nil {
+		return err
+	}
+	return st.Save()
+}
 
+// MarkDefaultsBootstrapped records that the embedded defaults have been
+// unpacked, so PendingDefaults reports none from now on.
+func MarkDefaultsBootstrapped() error {
+	st, err := state.Load()
+	if err != nil {
+		return err
+	}
 	st.DefaultsBootstrapped = true
-	if err := st.Save(); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not record embedded defaults bootstrap:", err)
-	}
+	return st.Save()
 }
 
 // EmbeddedIndex returns the plugin-index archive baked into this binary by
@@ -114,7 +117,7 @@ func InstallDefaults() {
 // internal/index to seed its cache from on a first run with nothing cached
 // yet — entirely offline, no feed call. ok is false when nothing was
 // embedded (a plain `go build -tags embed` with an empty
-// internal/bootstrap/embedded), mirroring InstallDefaults' own no-op case.
+// internal/bootstrap/embedded), mirroring PendingDefaults' own no-op case.
 func EmbeddedIndex() (archive []byte, version string, ok bool) {
 	manifest, mok := loadManifest()
 	if !mok || manifest.Index.Version == "" {
@@ -128,9 +131,8 @@ func EmbeddedIndex() (archive []byte, version string, ok bool) {
 }
 
 // installEmbeddedDefault writes one staged plugin binary to its canonical
-// on-disk location and records it in st.Plugins. st is saved once by the
-// caller after every entry has been placed.
-func installEmbeddedDefault(st *state.State, d embeddedDefault) error {
+// on-disk location and records it in st.Plugins; the caller saves st.
+func installEmbeddedDefault(st *state.State, d Default) error {
 	// embed.FS paths are always "/"-separated regardless of host OS.
 	data, err := fs.ReadFile(embeddedFS, path.Join("embedded", d.File))
 	if err != nil {
@@ -163,9 +165,9 @@ func installEmbeddedDefault(st *state.State, d embeddedDefault) error {
 	return nil
 }
 
-// hostBinaryName mirrors internal/plugincmd's canonical entrypoint naming
+// hostBinaryName mirrors internal/builtins' canonical entrypoint naming
 // (<host binary name>-<plugin name>) so embedded defaults land under the
-// same convention as plugins installed via `dongle plugin install`.
+// same convention as plugins installed via `dongle install`.
 func hostBinaryName() string {
 	name := filepath.Base(os.Args[0])
 	if name == "" || name == "." || name == string(filepath.Separator) {
