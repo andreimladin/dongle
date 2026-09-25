@@ -33,22 +33,32 @@ const (
 // fails, since its one job didn't happen.
 func Sync() int {
 	prev, _ := index.CachedVersion()
+	sp := ui.StartSpinner("Syncing plugin index...")
 	latest, err := index.FetchLatest()
+	if err == nil {
+		err = latest.Apply()
+	}
+	sp.Stop()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: could not download the latest plugin index:", err)
+		ui.Errorf("could not sync the plugin index: %v", err)
 		if !index.HasCache() {
-			index.SeedEmbedded()
+			if _, serr := index.SeedEmbedded(); serr != nil {
+				ui.Warnf("could not seed the embedded plugin index: %v", serr)
+			}
 		}
 		if v, ok := index.CachedVersion(); ok {
-			fmt.Fprintf(os.Stderr, "Still using plugin index %s.\n", v)
+			ui.Infof("Still using plugin index %s.", v)
 		}
 		return 1
 	}
-	if err := latest.Apply(); err != nil {
-		fmt.Fprintln(os.Stderr, "error: installing the downloaded plugin index:", err)
-		return 1
+	cur, _ := index.CachedVersion()
+	switch {
+	case prev == "" || prev == cur:
+		ui.Successf("Plugin index %s is the latest.", cur)
+	default:
+		ui.Successf("Updated plugin index %s %s %s.", prev, ui.Err.Arrow(), cur)
 	}
-	writeIndexSummary(os.Stdout, prev)
+	writeIndexSummary(os.Stdout, ui.Out, prev)
 	return 0
 }
 
@@ -59,26 +69,35 @@ func Sync() int {
 // of those happened. Failing to reach the feed is not an error: the
 // cached index is used and a warning says so.
 func prepareIndex(mode SyncMode) error {
-	hadCache := index.HasCache()
+	if !index.HasCache() && !index.HasEmbedded() {
+		// Nothing cached and nothing embedded to seed from: the first
+		// download is the latest by definition, so there's nothing newer
+		// to check for afterwards.
+		sp := ui.StartSpinner("Downloading plugin index...")
+		err := index.EnsureCache()
+		sp.Stop()
+		if err != nil {
+			return err
+		}
+		v, _ := index.CachedVersion()
+		ui.Successf("Downloaded plugin index %s.", v)
+		return nil
+	}
 	if err := index.EnsureCache(); err != nil {
 		return err
 	}
 	cached, _ := index.CachedVersion()
-	if origin, _ := index.CachedOrigin(); !hadCache && origin == index.OriginFetched {
-		// No cache and nothing embedded: EnsureCache just downloaded the
-		// latest from the feed, so there is nothing newer to check for.
-		fmt.Fprintf(os.Stderr, "Downloaded plugin index %s.\n", cached)
-		return nil
-	}
 	if mode == SyncNever {
-		fmt.Fprintf(os.Stderr, "Using cached plugin index %s (--no-sync).\n", cached)
+		ui.Infof("Using cached plugin index %s (--no-sync).", cached)
 		return nil
 	}
 
+	sp := ui.StartSpinner("Checking for a newer plugin index...")
 	latest, err := index.FetchLatest()
+	sp.Stop()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not check the feed for a newer plugin index: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Using cached plugin index %s.\n", cached)
+		ui.Warnf("could not check the feed for a newer plugin index: %v", err)
+		ui.Infof("Using cached plugin index %s.", cached)
 		return nil
 	}
 
@@ -93,7 +112,7 @@ func prepareIndex(mode SyncMode) error {
 			latest.Discard()
 			index.MarkChecked()
 		}
-		fmt.Fprintf(os.Stderr, "Plugin index %s is already the latest.\n", cached)
+		ui.Successf("Plugin index %s is already the latest.", cached)
 		return nil
 	}
 
@@ -103,26 +122,26 @@ func prepareIndex(mode SyncMode) error {
 		update = true
 	case ui.StdinIsTerminal():
 		update = ui.Confirm(fmt.Sprintf(
-			"A newer plugin index is available (%s -> %s). Update the index first?", cached, latest.Version))
+			"A newer plugin index is available (%s %s %s). Update the index first?", cached, ui.Err.Arrow(), latest.Version))
 	default:
 		latest.Discard()
-		fmt.Fprintf(os.Stderr,
-			"note: a newer plugin index is available (%s -> %s); using the cached one.\n"+
-				"      Run `dongle sync`, or pass --sync, to update it first.\n", cached, latest.Version)
+		ui.Notef("a newer plugin index is available (%s -> %s); using the cached one.", cached, latest.Version)
+		ui.Notef("run `dongle sync`, or pass --sync, to update it first.")
 		return nil
 	}
 	if !update {
 		latest.Discard()
-		fmt.Fprintf(os.Stderr, "Using cached plugin index %s.\n", cached)
+		ui.Infof("Using cached plugin index %s.", cached)
 		return nil
 	}
 
 	if err := latest.Apply(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not update the plugin index: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Using cached plugin index %s.\n", cached)
+		ui.Warnf("could not update the plugin index: %v", err)
+		ui.Infof("Using cached plugin index %s.", cached)
 		return nil
 	}
-	writeIndexSummary(os.Stderr, cached)
+	ui.Successf("Updated plugin index %s %s %s.", cached, ui.Err.Arrow(), latest.Version)
+	writeIndexSummary(os.Stderr, ui.Err, cached)
 	fmt.Fprintln(os.Stderr)
 	return nil
 }
@@ -130,7 +149,8 @@ func prepareIndex(mode SyncMode) error {
 // writeIndexSummary prints the cached index's version (noting what it was
 // updated from, when prev differs) and every plugin it lists, marking the
 // installed ones and those with an upgrade available.
-func writeIndexSummary(w io.Writer, prev string) {
+// p is the palette for w's stream.
+func writeIndexSummary(w io.Writer, p ui.Palette, prev string) {
 	cur, _ := index.CachedVersion()
 	note := ""
 	switch {
@@ -142,10 +162,13 @@ func writeIndexSummary(w io.Writer, prev string) {
 	}
 
 	var t ui.Table
-	t.Row(0, "index", cur, note)
+	t.Style(0, p.Bold)
+	// The note is always the last cell (never padded), so it can be styled
+	// per row without skewing alignment.
+	t.Row(0, "index", cur, p.Dim(note))
 	entries, err := index.List()
 	if err != nil || len(entries) == 0 {
-		t.Heading("plugins:  none")
+		t.Heading(p.Bold("plugins:") + "  none")
 		t.Write(w)
 		return
 	}
@@ -154,21 +177,21 @@ func writeIndexSummary(w io.Writer, prev string) {
 		st = &state.State{}
 	}
 	sortManifests(entries)
-	t.Heading("plugins:")
+	t.Heading(p.Bold("plugins:"))
 	for _, e := range entries {
-		t.Row(2, e.Name, strings.TrimPrefix(e.Version, "v"), installedNote(st, e))
+		t.Row(2, e.Name, strings.TrimPrefix(e.Version, "v"), installedNote(p, st, e))
 	}
 	t.Write(w)
 }
 
 // installedNote describes a listed plugin's local install state.
-func installedNote(st *state.State, m index.Manifest) string {
+func installedNote(p ui.Palette, st *state.State, m index.Manifest) string {
 	inst, ok := st.Plugins[m.Name]
 	if !ok {
 		return ""
 	}
 	if cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion); err == nil && cmp > 0 {
-		return "installed " + inst.ActiveVersion + ", upgrade available"
+		return p.Yellow("installed " + inst.ActiveVersion + ", upgrade available")
 	}
-	return "installed"
+	return p.Green("installed")
 }

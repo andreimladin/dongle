@@ -44,6 +44,12 @@ A name that is neither a builtin nor an installed plugin is an error: dongle
 prints `error: command "X" is not supported` followed by the root help, and
 exits non-zero.
 
+**Output conventions.** Command results go to stdout; status messages,
+warnings, errors, prompts and spinners go to stderr, so stdout stays clean
+for piping. Color, symbols and spinners appear only when the stream they're
+written to is a terminal (and `NO_COLOR` isn't set); piped or CI output is
+plain text, one status line per step, and never prompts.
+
 ### Two ways to build the host
 
 | command | binary | plugins |
@@ -187,22 +193,30 @@ downloaded index archive itself into
 `build_binary <os> <arch>` then builds with `-tags embed` so
 `internal/bootstrap/bootstrap.go`'s `//go:embed all:embedded` picks up
 whatever `fetch_embedded` staged — no feed/`az` access in this function at
-all, it only compiles. On first run, `bootstrap.InstallDefaults()` unpacks
-the embedded plugins into the normal plugin store
-(`plugins/<name>/<version>/<entrypoint>`) and sets a `defaultsBootstrapped`
+all, it only compiles. On first run, `plugincmd.Initialize()` extracts the
+embedded index and unpacks the embedded plugins (`bootstrap.PendingDefaults`
+/ `InstallDefault`) into the normal plugin store
+(`plugins/<name>/<version>/<entrypoint>`), then sets a `defaultsBootstrapped`
 flag in `state.json` so it never runs again — from then on those plugins
-behave exactly like ones installed via `dongle install`.
+behave exactly like ones installed via `dongle install`. Because that first
+run takes a moment, it reports progress on stderr (a spinner on a terminal,
+plain lines otherwise); later runs print nothing:
+
+```
+Initializing plugin index...
+Installing deploy...
+Initialization complete.
+```
 
 The embedding mechanism itself — the `//go:embed` directive, the staged
-`embedded/` payload, and both the real and no-op `InstallDefaults`
-implementations — lives entirely in `internal/bootstrap`, since `//go:embed`
-paths are relative to the source file and can't reach outside a package
-with `../`. `cmd/` only calls `bootstrap.InstallDefaults()`; it holds no
-embedding logic of its own.
+`embedded/` payload, and both the real and no-op implementations — lives
+entirely in `internal/bootstrap`, since `//go:embed` paths are relative to
+the source file and can't reach outside a package with `../`. `cmd/` only
+calls `plugincmd.Initialize()`; it holds no embedding logic of its own.
 
 A binary built without `-tags embed` (i.e. anything but `build_binary`'s
 output) links `internal/bootstrap/noop.go` instead, whose
-`InstallDefaults()` (and `EmbeddedIndex()`, see below) are no-ops — no
+`PendingDefaults()` (and `EmbeddedIndex()`, see below) report nothing — no
 embed dependency, no behavior change, nothing staged.
 
 Local usage for one platform:
@@ -229,7 +243,7 @@ something newer.
 `internal/bootstrap.EmbeddedIndex()` exposes the staged
 `internal/bootstrap/embedded/index.tar.gz` and its version (from
 `manifest.json`'s `"index"` field) to `internal/index`, mirroring
-`InstallDefaults()`'s plugin-embedding pattern — same `//go:embed all:embedded`
+the default plugins' embedding pattern — same `//go:embed all:embedded`
 filesystem, just a different file read out of it. `internal/index.EnsureFresh`
 follows this precedence whenever a read-only command (`search`, `support`)
 needs the catalog:
@@ -330,7 +344,7 @@ cmd/                    host entry (cobra): main.go, root.go (root command +
                         plugin dispatch fall-through, plus the
                         hostVersion/indexOrg/indexProject/indexFeed/
                         indexPackage vars + protocol const, injected via
-                        -ldflags — calls bootstrap.InstallDefaults(), holds
+                        -ldflags — calls plugincmd.Initialize(), holds
                         no embedding logic), plugins.go (list/search/
                         install/remove/upgrade), sync.go, support.go
 internal/bootstrap/    embedded default plugins + seed index (see above):
@@ -339,8 +353,11 @@ internal/bootstrap/    embedded default plugins + seed index (see above):
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
-internal/plugincmd/    list/search/install/remove/upgrade/sync + --version
-                        report (+ index resolver)
+internal/plugincmd/    list/search/install/remove/upgrade/sync/support,
+                        --version report, first-run Initialize (+ index
+                        resolver)
+internal/ui/           TTY-aware output: aligned tables, color, status
+                        lines, spinner, y/N prompt
 internal/index/        feed-archive catalog: downloads + extracts the
                         versioned dongle-index package, TTL cache, lookups,
                         embedded-seed fallback for offline first run

@@ -4,13 +4,13 @@
 package dispatch
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/state"
+	"github.com/andreimladin/dongle/internal/ui"
 )
 
 // IsInstalled reports whether a plugin named name is registered in local
@@ -30,12 +30,12 @@ func IsInstalled(name string) (bool, error) {
 func Run(hostVersion, protocol, name string, args []string) int {
 	st, err := state.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: reading state:", err)
+		ui.Errorf("reading state: %v", err)
 		return 1
 	}
 	inst, ok := st.Plugins[name]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "error: plugin %q is not installed (see `dongle list`)\n", name)
+		ui.Errorf("plugin %q is not installed (see `dongle list`)", name)
 		return 127
 	}
 
@@ -44,10 +44,10 @@ func Run(hostVersion, protocol, name string, args []string) int {
 	// Compatibility gate (also enforced at install time; re-checked here because
 	// the host binary can be upgraded after a plugin was installed).
 	if ok, reason, err := compat.Check(hostVersion, protocol, inst.Requires); err != nil {
-		fmt.Fprintln(os.Stderr, "error: bad constraint in state:", err)
+		ui.Errorf("bad constraint in state: %v", err)
 		return 1
 	} else if !ok {
-		fmt.Fprintf(os.Stderr, "error: %s %s — upgrade dongle\n", name, reason)
+		ui.Errorf("%s %s — upgrade dongle", name, reason)
 		return 1
 	}
 
@@ -66,7 +66,7 @@ func Run(hostVersion, protocol, name string, args []string) int {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode() // plugin ran and chose to fail — pass its code through
 		}
-		fmt.Fprintf(os.Stderr, "error launching %s: %v\n", name, err)
+		ui.Errorf("launching %s: %v", name, err)
 		return 1
 	}
 	return 0

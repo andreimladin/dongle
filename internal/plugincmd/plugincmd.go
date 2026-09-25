@@ -1,11 +1,12 @@
 // Package plugincmd implements dongle's plugin-management builtins —
-// list, search, install, remove, upgrade, sync — plus the --version
-// report. Each exported function is the whole of one command: it prints
+// list, search, install, remove, upgrade, sync, support — plus the
+// --version report and first-run initialization. Each exported function is the whole of one command: it prints
 // its own results/errors and returns the process exit code, so cmd/ stays
 // a thin cobra adapter.
 package plugincmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -31,21 +32,24 @@ const IndexTTL = time.Hour
 
 // Version prints the grouped `dongle --version` report: the host's own
 // version, the index version in use, and every installed plugin.
-func Version(hostVersion, protocol string) int {
+func Version(hostVersion string) int {
 	st, err := state.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: reading state:", err)
+		ui.Errorf("reading state: %v", err)
 		return 1
 	}
 
+	p := ui.Out
 	var t ui.Table
-	t.Row(0, "dongle", hostVersion+"  (protocol "+protocol+")")
-	t.Row(0, "index", indexVersionLabel())
+	t.Style(0, p.Bold)
+	t.Row(0, "dongle", hostVersion)
+	iv, note := indexVersionLabel()
+	t.Row(0, "index", iv, p.Dim(note))
 	names := sortedNames(st)
 	if len(names) == 0 {
-		t.Heading("plugins:  none installed")
+		t.Heading(p.Bold("plugins:") + "  " + p.Dim("none installed"))
 	} else {
-		t.Heading("plugins:")
+		t.Heading(p.Bold("plugins:"))
 		for _, n := range names {
 			t.Row(2, n, st.Plugins[n].ActiveVersion)
 		}
@@ -54,16 +58,17 @@ func Version(hostVersion, protocol string) int {
 	return 0
 }
 
-// indexVersionLabel describes the cached index for --version.
-func indexVersionLabel() string {
+// indexVersionLabel describes the cached index for --version: its
+// version, plus a note marking the embedded seed.
+func indexVersionLabel() (version, note string) {
 	v, ok := index.CachedVersion()
 	if !ok {
-		return "not downloaded yet (run `dongle sync`)"
+		return "none", "(run `dongle sync`)"
 	}
 	if origin, _ := index.CachedOrigin(); origin == index.OriginEmbedded {
-		return v + "  (embedded)"
+		return v, "(embedded)"
 	}
-	return v
+	return v, ""
 }
 
 func sortManifests(ms []index.Manifest) {
@@ -83,14 +88,15 @@ func sortedNames(st *state.State) []string {
 func List() int {
 	st, err := state.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 	if len(st.Plugins) == 0 {
-		fmt.Fprintln(os.Stderr, "No plugins installed. Find some with `dongle search`.")
+		ui.Infof("No plugins installed. Find some with `dongle search`.")
 		return 0
 	}
 	var t ui.Table
+	t.Style(0, ui.Out.Bold)
 	for _, n := range sortedNames(st) {
 		t.Row(0, n, st.Plugins[n].ActiveVersion)
 	}
@@ -98,25 +104,78 @@ func List() int {
 	return 0
 }
 
+// EnsureFresh is index.EnsureFresh(IndexTTL) for the builtins that only
+// read the index (search, support): a spinner while the feed is contacted
+// (shown only when it will be), and a failed refresh of a still-usable
+// cache reported as a warning rather than an error.
+func EnsureFresh() error {
+	var sp *ui.Spinner
+	if index.NeedsRefresh(IndexTTL) {
+		sp = ui.StartSpinner("Refreshing plugin index...")
+	}
+	err := index.EnsureFresh(IndexTTL)
+	if sp != nil {
+		sp.Stop()
+	}
+	var stale *index.StaleError
+	if errors.As(err, &stale) {
+		ui.Warnf("%v", stale)
+		return nil
+	}
+	return err
+}
+
 // Search shows what's available in the catalog (needs the index cache).
 func Search() int {
-	if err := index.EnsureFresh(IndexTTL); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+	if err := EnsureFresh(); err != nil {
+		ui.Errorf("%v", err)
 		return 1
 	}
 	entries, err := index.List()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 	if len(entries) == 0 {
-		fmt.Fprintln(os.Stderr, "The plugin index is empty.")
+		ui.Infof("The plugin index is empty.")
 		return 0
 	}
 	sortManifests(entries)
 	var t ui.Table
+	t.Style(0, ui.Out.Bold)
+	t.Style(2, ui.Out.Dim)
 	for _, e := range entries {
-		t.Row(0, e.Name, e.Version, e.ShortDescription)
+		t.Row(0, e.Name, strings.TrimPrefix(e.Version, "v"), e.ShortDescription)
+	}
+	t.Write(os.Stdout)
+	return 0
+}
+
+// Support prints where to get help with a plugin, straight from its index
+// manifest — installed state is never consulted, so it works for any
+// plugin in the index (`dongle support`).
+func Support(name string) int {
+	if err := EnsureFresh(); err != nil {
+		ui.Errorf("%v", err)
+		return 1
+	}
+	m, err := index.Load(name)
+	if errors.Is(err, index.ErrNotFound) {
+		ui.Errorf("no plugin named %s in the index (see `dongle search`)", name)
+		return 1
+	}
+	if err != nil {
+		ui.Errorf("%v", err)
+		return 1
+	}
+
+	fmt.Println(ui.Out.Bold(m.Name) + " — support")
+	var t ui.Table
+	t.Style(0, ui.Out.Dim)
+	t.Row(2, "Documentation:", m.Support.Documentation)
+	t.Row(2, "Channel:", m.Support.Channel)
+	if m.Support.Contact != "" {
+		t.Row(2, "Contact:", m.Support.Contact)
 	}
 	t.Write(os.Stdout)
 	return 0
@@ -131,21 +190,21 @@ func Search() int {
 func Upgrade(hostVersion, protocol, name string, mode SyncMode) int {
 	st, err := state.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 	if name != "" {
 		if _, ok := st.Plugins[name]; !ok {
-			fmt.Fprintf(os.Stderr, "error: %s is not installed; use `dongle install %s`\n", name, name)
+			ui.Errorf("%s is not installed; use `dongle install %s`", name, name)
 			return 1
 		}
 	} else if len(st.Plugins) == 0 {
-		fmt.Fprintln(os.Stderr, "No plugins installed; nothing to upgrade.")
+		ui.Infof("No plugins installed; nothing to upgrade.")
 		return 0
 	}
 
 	if err := prepareIndex(mode); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 
@@ -168,8 +227,14 @@ func Upgrade(hostVersion, protocol, name string, mode SyncMode) int {
 			skipped++
 		}
 	}
-	fmt.Fprintf(os.Stderr, "\n%d upgraded, %d already up to date, %d skipped, %d failed\n",
+	fmt.Fprintln(os.Stderr)
+	summary := fmt.Sprintf("%d upgraded, %d already up to date, %d skipped, %d failed",
 		upgraded, current, skipped, failed)
+	if failed > 0 {
+		ui.Errorf("%s", summary)
+	} else {
+		ui.Successf("%s", summary)
+	}
 	if failed > 0 {
 		return 1
 	}
@@ -193,10 +258,10 @@ func upgradeOne(hostVersion, protocol string, inst state.Installed, all bool) (i
 	name := inst.Name
 	skipOrFail := func(format string, a ...any) (int, upgradeResult) {
 		if all {
-			fmt.Fprintf(os.Stderr, "skipped %s: "+format+"\n", append([]any{name}, a...)...)
+			ui.Warnf("skipping "+format, a...)
 			return 0, upgradeSkipped
 		}
-		fmt.Fprintf(os.Stderr, "error: "+format+"\n", a...)
+		ui.Errorf(format, a...)
 		return 1, upgradeSkipped
 	}
 
@@ -205,25 +270,25 @@ func upgradeOne(hostVersion, protocol string, inst state.Installed, all bool) (i
 		return skipOrFail("%s is not in the index", name)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s: %v\n", name, err)
+		ui.Errorf("%s: %v", name, err)
 		return 1, upgradeSkipped
 	}
 
 	cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s: %v\n", name, err)
+		ui.Errorf("%s: %v", name, err)
 		return 1, upgradeSkipped
 	}
 	switch {
 	case cmp == 0:
-		fmt.Printf("%s is already up to date (%s)\n", name, inst.ActiveVersion)
+		fmt.Println(ui.Out.Dim(fmt.Sprintf("%s is already up to date (%s)", name, inst.ActiveVersion)))
 		return 0, upgradeCurrent
 	case cmp < 0:
 		return skipOrFail("installed %s %s is newer than the index (%s); not downgrading. Use remove + install to force.",
 			name, inst.ActiveVersion, m.Version)
 	}
 
-	if code := installResolved(hostVersion, protocol, m, "upgraded", inst.ActiveVersion); code != 0 {
+	if code := installResolved(hostVersion, protocol, m, inst.ActiveVersion); code != 0 {
 		return code, upgradeSkipped
 	}
 	return 0, upgradeDone
@@ -234,57 +299,64 @@ func upgradeOne(hostVersion, protocol string, inst state.Installed, all bool) (i
 // prepareIndex).
 func Install(hostVersion, protocol, name string, mode SyncMode) int {
 	if err := prepareIndex(mode); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 
 	m, err := index.Load(name)
 	if errors.Is(err, index.ErrNotFound) {
-		fmt.Fprintf(os.Stderr, "error: no plugin named %s in the index (see `dongle search`)\n", name)
+		ui.Errorf("no plugin named %s in the index (see `dongle search`)", name)
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
-	return installResolved(hostVersion, protocol, m, "installed", "")
+	return installResolved(hostVersion, protocol, m, "")
 }
 
 // installResolved compat-checks, downloads and places the plugin m
-// describes. verb and fromVersion only shape the success message
-// ("installed x 1.2.0" vs "upgraded x 1.1.0 -> 1.2.0").
-func installResolved(hostVersion, protocol string, m *index.Manifest, verb, fromVersion string) int {
+// describes. A non-empty fromVersion makes it an upgrade from that
+// version, which only changes the progress and success messages.
+func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersion string) int {
 	if ok, reason, err := compat.Check(hostVersion, protocol, m.Requires); err != nil {
-		fmt.Fprintln(os.Stderr, "error: bad constraint in manifest:", err)
+		ui.Errorf("bad constraint in manifest: %v", err)
 		return 1
 	} else if !ok {
-		fmt.Fprintf(os.Stderr, "error: %s %s — not installing\n", m.Name, reason)
+		ui.Errorf("%s %s — not installing", m.Name, reason)
 		return 1
 	}
 
 	plat, err := m.PlatformFor()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 
+	version := strings.TrimPrefix(m.Version, "v")
+	action := fmt.Sprintf("Installing %s %s...", m.Name, version)
+	if fromVersion != "" {
+		action = fmt.Sprintf("Upgrading %s %s %s %s...", m.Name, fromVersion, ui.Err.Arrow(), version)
+	}
+	sp := ui.StartSpinner(action)
 	staging, downloaded, err := fetchArtifact(m, plat)
 	if staging != "" {
 		defer os.RemoveAll(staging)
 	}
+	if err == nil {
+		err = placePlugin(m, downloaded)
+	}
+	sp.Stop()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 
-	if code := placePlugin(m, downloaded); code != 0 {
-		return code
-	}
-	version := strings.TrimPrefix(m.Version, "v")
 	if fromVersion != "" {
-		fmt.Printf("%s %s %s -> %s\n", verb, m.Name, fromVersion, version)
+		ui.Resultf("Upgraded %s %s %s %s", ui.Out.Bold(m.Name), fromVersion, ui.Out.Arrow(), version)
 	} else {
-		fmt.Printf("%s %s %s (run it with: %s %s)\n", verb, m.Name, version, hostBinaryName(), m.Name)
+		ui.Resultf("Installed %s %s %s", ui.Out.Bold(m.Name), version,
+			ui.Out.Dim(fmt.Sprintf("(run it with: %s %s)", hostBinaryName(), m.Name)))
 	}
 	return 0
 }
@@ -343,10 +415,13 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (
 	if m.Feed.Project != "" {
 		args = append(args, "--project", m.Feed.Project, "--scope", "project")
 	}
+	// az's stderr is captured (not inherited) so it can't garble the
+	// spinner; index.AzError surfaces it if the download fails.
+	var stderr bytes.Buffer
 	cmd := exec.Command("az", args...)
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("az download %s@%s: %w", plat.Package, ver, err)
+		return "", index.AzError(fmt.Sprintf("az download %s@%s", plat.Package, ver), err, stderr.Bytes())
 	}
 
 	entries, err := os.ReadDir(destDir)
@@ -375,11 +450,11 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (
 // always knows what to exec regardless of how the package itself named the
 // file. downloaded already lives under <dataDir>/.staging (from
 // fetchArtifact), so the final move into the plugins dir is a same-filesystem
-// rename and state is only updated once the plugin is fully on disk.
-func placePlugin(m *index.Manifest, downloaded string) int {
+// rename and state is only updated once the plugin is fully on disk. It
+// prints nothing (it runs under the install spinner); errors are returned.
+func placePlugin(m *index.Manifest, downloaded string) error {
 	if err := os.Chmod(downloaded, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
+		return err
 	}
 
 	version := strings.TrimPrefix(m.Version, "v")
@@ -388,26 +463,22 @@ func placePlugin(m *index.Manifest, downloaded string) int {
 	dst := filepath.Join(verDir, entrypoint)
 
 	if err := os.RemoveAll(verDir); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
+		return err
 	}
 	if err := os.MkdirAll(verDir, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
+		return err
 	}
 	if err := os.Rename(downloaded, dst); err != nil {
 		// cross-filesystem safety net: staging is normally under the data dir
 		// (same filesystem as dst), but fall back to a copy if it isn't.
 		if cerr := copyFile(downloaded, dst, 0o755); cerr != nil {
-			fmt.Fprintln(os.Stderr, "error: place plugin:", cerr)
-			return 1
+			return fmt.Errorf("place plugin: %w", cerr)
 		}
 	}
 
 	st, err := state.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
+		return err
 	}
 	st.Plugins[m.Name] = state.Installed{
 		Name:          m.Name,
@@ -415,11 +486,7 @@ func placePlugin(m *index.Manifest, downloaded string) int {
 		Entrypoint:    entrypoint,
 		Requires:      m.Requires,
 	}
-	if err := st.Save(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
-	}
-	return 0
+	return st.Save()
 }
 
 // hostBinaryName returns the currently running host binary's own basename,
@@ -439,23 +506,23 @@ func hostBinaryName() string {
 func Remove(name string) int {
 	st, err := state.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 	if _, ok := st.Plugins[name]; !ok {
-		fmt.Fprintf(os.Stderr, "error: %s is not installed\n", name)
+		ui.Errorf("%s is not installed", name)
 		return 1
 	}
 	if err := os.RemoveAll(filepath.Join(state.PluginsDir(), name)); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
 	delete(st.Plugins, name)
 	if err := st.Save(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		return 1
 	}
-	fmt.Printf("removed %s\n", name)
+	ui.Resultf("Removed %s", ui.Out.Bold(name))
 	return 0
 }
 

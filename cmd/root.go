@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/dispatch"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/plugincmd"
+	"github.com/andreimladin/dongle/internal/ui"
 )
 
 // Build-time build inputs, injected via -ldflags at build time (see
@@ -84,7 +84,7 @@ Everything after the plugin name is passed to it unchanged.`,
 		case "-h", "--help":
 			return cmd.Help()
 		case "--version":
-			return exitCode(plugincmd.Version(hostVersion, protocol))
+			return exitCode(plugincmd.Version(hostVersion))
 		}
 		return runPlugin(cmd, args)
 	},
@@ -96,18 +96,18 @@ Everything after the plugin name is passed to it unchanged.`,
 func runPlugin(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	if strings.HasPrefix(name, "-") {
-		fmt.Fprintf(os.Stderr, "error: unknown flag %q\n\n", name)
+		ui.Errorf("unknown flag %q\n", name)
 		return usageError(cmd)
 	}
 	installed, err := dispatch.IsInstalled(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error: reading state:", err)
+		ui.Errorf("reading state: %v", err)
 		return exitCode(1)
 	}
 	if installed {
 		return exitCode(dispatch.Run(hostVersion, protocol, name, args[1:]))
 	}
-	fmt.Fprintf(os.Stderr, "error: command %q is not supported\n", name)
+	ui.Errorf("command %q is not supported", name)
 	if s := cmd.SuggestionsFor(name); len(s) > 0 {
 		fmt.Fprintf(os.Stderr, "Did you mean: %s?\n", strings.Join(s, ", "))
 	}
@@ -160,7 +160,7 @@ func init() {
 	// the root); it's declared here only so it's listed in --help.
 	rootCmd.Flags().Bool("version", false, "print dongle, index and installed plugin versions")
 	rootCmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", c.CommandPath())
 		return exitCode(2)
 	})
@@ -173,10 +173,10 @@ func Execute() int {
 	// internal/index before any refresh/plugin command runs.
 	index.SetDefaults(indexOrg, indexProject, indexFeed, indexPackage)
 
-	// Batteries-included binaries (built with -tags embed) self-register
-	// their embedded defaults here, before any dispatch happens. Plain
-	// builds get the no-op in internal/bootstrap/noop.go.
-	bootstrap.InstallDefaults()
+	// Batteries-included binaries (built with -tags embed) unpack their
+	// embedded index and default plugins here on first run, before any
+	// dispatch happens. Plain builds embed nothing, so it's a no-op.
+	plugincmd.Initialize()
 
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
@@ -186,7 +186,7 @@ func Execute() int {
 		}
 		// Anything else is cobra's own (e.g. wrong argument count); errors
 		// are silenced on the root, so report it here.
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Errorf("%v", err)
 		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", cmd.CommandPath())
 		return 2
 	}

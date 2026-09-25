@@ -40,6 +40,7 @@ import (
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/state"
+	"github.com/andreimladin/dongle/internal/ui"
 )
 
 // injected holds the index package's Azure Artifacts feed coordinates —
@@ -170,7 +171,8 @@ type Selector struct {
 //   - a stale cache triggers a feed download to replace it; on failure the
 //     existing cache is kept (a command running on slightly old data beats
 //     one that can't run at all), so being offline never blocks commands
-//     that can run on a slightly stale catalog.
+//     that can run on a slightly stale catalog. That case returns a
+//     *StaleError, which callers report as a warning, not a failure.
 func EnsureFresh(ttl time.Duration) error {
 	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
 		if seedFromEmbedded() {
@@ -181,10 +183,39 @@ func EnsureFresh(ttl time.Duration) error {
 	age, err := cacheAge()
 	if err != nil || age > ttl {
 		if err := download(); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not refresh index (%v); using cached copy\n", err)
+			return &StaleError{Err: err}
 		}
 	}
 	return nil
+}
+
+// StaleError is EnsureFresh's "refresh failed, but the (stale) cached
+// index is still usable" result: a warning for the caller to show, not a
+// reason to stop.
+type StaleError struct{ Err error }
+
+func (e *StaleError) Error() string {
+	return fmt.Sprintf("could not refresh the plugin index (%v); using the cached copy", e.Err)
+}
+
+func (e *StaleError) Unwrap() error { return e.Err }
+
+// NeedsRefresh reports whether EnsureFresh(ttl) would contact the feed —
+// no cache and nothing embedded to seed it from, or a cache older than
+// ttl — so callers can show progress only when there will be some.
+func NeedsRefresh(ttl time.Duration) bool {
+	if !HasCache() {
+		return !HasEmbedded()
+	}
+	age, err := cacheAge()
+	return err != nil || age > ttl
+}
+
+// HasEmbedded reports whether this binary carries a seed index (built with
+// -tags embed and a staged index archive).
+func HasEmbedded() bool {
+	_, _, ok := bootstrap.EmbeddedIndex()
+	return ok
 }
 
 // HasCache reports whether any index is cached locally.
@@ -210,9 +241,10 @@ func EnsureCache() error {
 }
 
 // SeedEmbedded seeds the cache from the index embedded in this binary,
-// replacing whatever is cached. It reports false when nothing was embedded
-// (a plain, non -tags-embed build) or seeding failed.
-func SeedEmbedded() bool { return seedFromEmbedded() }
+// replacing whatever is cached, without printing anything (callers may be
+// showing a spinner). ok is false when nothing was embedded (a plain,
+// non -tags-embed build); err reports a failed extraction.
+func SeedEmbedded() (ok bool, err error) { return extractEmbedded() }
 
 // seedFromEmbedded extracts the index archive baked into this binary (see
 // internal/bootstrap.EmbeddedIndex and scripts/build.sh's fetch_embedded)
@@ -221,48 +253,52 @@ func SeedEmbedded() bool { return seedFromEmbedded() }
 // when nothing was embedded (a plain, non -tags-embed build), so the
 // caller can fall back to a feed download.
 func seedFromEmbedded() bool {
-	archive, version, ok := bootstrap.EmbeddedIndex()
-	if !ok {
-		return false
+	ok, err := extractEmbedded()
+	if err != nil {
+		ui.Warnf("could not seed the embedded plugin index: %v", err)
+	}
+	return ok && err == nil
+}
+
+// extractEmbedded does seedFromEmbedded's work without printing: ok is
+// false when nothing was embedded; err reports a failed extraction, which
+// leaves the cache untouched (except for a failure recording its version).
+// Failing to record the origin/freshness metadata is not fatal and is
+// ignored: the cache then just reads as fetched / stale.
+func extractEmbedded() (ok bool, err error) {
+	archive, version, embedded := bootstrap.EmbeddedIndex()
+	if !embedded {
+		return false, nil
 	}
 
 	stagingRoot := filepath.Join(state.DataDir(), ".staging")
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
-		return false
+		return true, err
 	}
 	staging, err := os.MkdirTemp(stagingRoot, "index-embedded-")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
-		return false
+		return true, err
 	}
 	defer os.RemoveAll(staging)
 
 	extractDir := filepath.Join(staging, "extracted")
 	if err := extractTarGzBytes(archive, extractDir); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not extract embedded index:", err)
-		return false
+		return true, err
 	}
 
 	if err := os.RemoveAll(cacheDir()); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
-		return false
+		return true, err
 	}
 	if err := os.Rename(extractDir, cacheDir()); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not seed embedded index:", err)
-		return false
+		return true, err
 	}
 
 	if err := os.WriteFile(versionPath(), []byte(version), 0o644); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not record embedded index version:", err)
+		return true, err
 	}
-	if err := writeOrigin(OriginEmbedded); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not record embedded index origin:", err)
-	}
-	if err := touchMeta(); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not record embedded index freshness:", err)
-	}
-	return true
+	_ = writeOrigin(OriginEmbedded)
+	_ = touchMeta()
+	return true, nil
 }
 
 // CachedVersion returns the version of the index currently cached (read
@@ -441,10 +477,13 @@ func downloadArchive(destDir string) (string, error) {
 	if indexProject() != "" {
 		args = append(args, "--project", indexProject(), "--scope", "project")
 	}
+	// az's stderr is captured rather than inherited so it can't garble a
+	// spinner; it's surfaced in the error if the download fails.
+	var stderr bytes.Buffer
 	cmd := exec.Command("az", args...)
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("az download %s: %w", indexPackage(), err)
+		return "", AzError("az download "+indexPackage(), err, stderr.Bytes())
 	}
 
 	entries, err := os.ReadDir(destDir)
@@ -461,6 +500,16 @@ func downloadArchive(destDir string) (string, error) {
 		return "", fmt.Errorf("package %s contains %d files, expected exactly 1", indexPackage(), len(files))
 	}
 	return filepath.Join(destDir, files[0]), nil
+}
+
+// AzError wraps a failed `az` invocation's error with whatever it wrote
+// to stderr, so the cause (auth, missing package, ...) isn't lost when az
+// output is captured instead of shown live.
+func AzError(what string, err error, stderr []byte) error {
+	if msg := strings.TrimSpace(string(stderr)); msg != "" {
+		return fmt.Errorf("%s: %w\n%s", what, err, msg)
+	}
+	return fmt.Errorf("%s: %w", what, err)
 }
 
 // extractTarGz extracts a tar+gzip archive file into destDir, which must
