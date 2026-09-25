@@ -3,13 +3,13 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/andreimladin/dongle/internal/plugincmd"
+	"github.com/andreimladin/dongle/internal/builtins"
 )
 
 // The plugin-management builtins live directly at the root (there is no
 // `plugin` parent group). Each is a thin adapter: argument-count
 // validation is cobra's job, everything else — output, errors, exit codes
-// — is internal/plugincmd's.
+// — is internal/builtins'.
 
 var searchCmd = &cobra.Command{
 	Use:   "search",
@@ -22,7 +22,7 @@ than the cache TTL.`,
 	Example: `  dongle search`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Search())
+		return exitCode(builtins.Search())
 	},
 }
 
@@ -40,7 +40,7 @@ downloaded from the feed. Once installed, run it as ` + "`dongle <name>`" + `.
   dongle install deploy --no-sync   # use the cached index as-is`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Install(hostVersion, protocol, args[0], syncMode(cmd)))
+		return exitCode(builtins.Install(hostVersion, protocol, args[0], syncMode(cmd)))
 	},
 }
 
@@ -59,15 +59,15 @@ func addSyncFlags(cmd *cobra.Command) {
 	cmd.MarkFlagsMutuallyExclusive("sync", "no-sync")
 }
 
-// syncMode maps cmd's --sync/--no-sync flags to a plugincmd.SyncMode.
-func syncMode(cmd *cobra.Command) plugincmd.SyncMode {
+// syncMode maps cmd's --sync/--no-sync flags to a builtins.SyncMode.
+func syncMode(cmd *cobra.Command) builtins.SyncMode {
 	if on, _ := cmd.Flags().GetBool("sync"); on {
-		return plugincmd.SyncAlways
+		return builtins.SyncAlways
 	}
 	if off, _ := cmd.Flags().GetBool("no-sync"); off {
-		return plugincmd.SyncNever
+		return builtins.SyncNever
 	}
-	return plugincmd.SyncAsk
+	return builtins.SyncAsk
 }
 
 func init() {
@@ -83,7 +83,7 @@ disk and drops it from local state.`,
 	Example: `  dongle remove deploy`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Remove(args[0]))
+		return exitCode(builtins.Remove(args[0]))
 	},
 }
 
@@ -105,6 +105,6 @@ installed version is newer than the index's is never downgraded.
 		if len(args) == 1 {
 			name = args[0]
 		}
-		return exitCode(plugincmd.Upgrade(hostVersion, protocol, name, syncMode(cmd)))
+		return exitCode(builtins.Upgrade(hostVersion, protocol, name, syncMode(cmd)))
 	},
 }

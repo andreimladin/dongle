@@ -3,7 +3,7 @@
 // names.
 //
 // This shells out to `az artifacts universal download` — the exact same
-// command internal/plugincmd's downloadArtifact (dongle install)
+// command internal/builtins.downloadArtifact (dongle install)
 // uses — into a throwaway temp dir that's removed immediately after: a
 // successful download IS the existence proof, and its content is never
 // kept or inspected. An `az rest` metadata query was tried first, but it

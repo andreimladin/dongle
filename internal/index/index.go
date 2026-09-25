@@ -455,7 +455,7 @@ func IsNewer(a, b string) bool {
 // of the index Universal Package into destDir, returning the path to the
 // single downloaded file (expected to be index.tar.gz, but the package's
 // contents aren't assumed to be named predictably — the same defensiveness
-// internal/plugincmd's downloadArtifact uses).
+// internal/builtins.downloadArtifact uses).
 func downloadArchive(destDir string) (string, error) {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err

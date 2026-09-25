@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/andreimladin/dongle/internal/plugincmd"
+	"github.com/andreimladin/dongle/internal/builtins"
 )
 
 // supportCmd reads a plugin's support links straight from the index
@@ -17,6 +17,6 @@ in its index manifest. Works for any plugin in the index, installed or not.`,
 	Example: `  dongle support deploy`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Support(args[0]))
+		return exitCode(builtins.Support(args[0]))
 	},
 }

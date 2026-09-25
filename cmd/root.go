@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andreimladin/dongle/internal/builtins"
 	"github.com/andreimladin/dongle/internal/dispatch"
 	"github.com/andreimladin/dongle/internal/index"
-	"github.com/andreimladin/dongle/internal/plugincmd"
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
@@ -84,7 +84,7 @@ Everything after the plugin name is passed to it unchanged.`,
 		case "-h", "--help":
 			return cmd.Help()
 		case "--version":
-			return exitCode(plugincmd.Version(hostVersion))
+			return exitCode(builtins.Version(hostVersion))
 		}
 		return runPlugin(cmd, args)
 	},
@@ -176,7 +176,7 @@ func Execute() int {
 	// Batteries-included binaries (built with -tags embed) unpack their
 	// embedded index and default plugins here on first run, before any
 	// dispatch happens. Plain builds embed nothing, so it's a no-op.
-	plugincmd.Initialize()
+	builtins.Initialize()
 
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {

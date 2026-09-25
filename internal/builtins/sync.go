@@ -1,4 +1,4 @@
-package plugincmd
+package builtins
 
 import (
 	"fmt"

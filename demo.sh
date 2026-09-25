@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Plugin install now resolves only from the index, and the feed download
-# (internal/plugincmd.downloadArtifact) is still a stub — so `dongle
+# (internal/builtins.downloadArtifact) is still a stub — so `dongle
 # install <name>` can't complete end-to-end yet. This demo is trimmed to the
 # parts that work today: build, `dongle --version`, and (if DONGLE_INDEX_ORG or
 # similar is configured) `dongle sync` / `dongle search`.

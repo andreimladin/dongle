@@ -193,7 +193,7 @@ downloaded index archive itself into
 `build_binary <os> <arch>` then builds with `-tags embed` so
 `internal/bootstrap/bootstrap.go`'s `//go:embed all:embedded` picks up
 whatever `fetch_embedded` staged — no feed/`az` access in this function at
-all, it only compiles. On first run, `plugincmd.Initialize()` extracts the
+all, it only compiles. On first run, `builtins.Initialize()` extracts the
 embedded index and unpacks the embedded plugins (`bootstrap.PendingDefaults`
 / `InstallDefault`) into the normal plugin store
 (`plugins/<name>/<version>/<entrypoint>`), then sets a `defaultsBootstrapped`
@@ -212,7 +212,7 @@ The embedding mechanism itself — the `//go:embed` directive, the staged
 `embedded/` payload, and both the real and no-op implementations — lives
 entirely in `internal/bootstrap`, since `//go:embed` paths are relative to
 the source file and can't reach outside a package with `../`. `cmd/` only
-calls `plugincmd.Initialize()`; it holds no embedding logic of its own.
+calls `builtins.Initialize()`; it holds no embedding logic of its own.
 
 A binary built without `-tags embed` (i.e. anything but `build_binary`'s
 output) links `internal/bootstrap/noop.go` instead, whose
@@ -314,7 +314,7 @@ Real and testable now:
 
 Stubbed (the seam is in place):
 
-- `internal/plugincmd.downloadArtifact` calls the real `az artifacts universal
+- `internal/builtins.downloadArtifact` calls the real `az artifacts universal
   download`; a REST-based implementation (no `az` dependency) is future work.
 
 Not built yet (future work): authentication (a credential store, `login`, and
@@ -345,7 +345,7 @@ cmd/                    host entry (cobra): main.go, root.go (root command +
                         plugin dispatch fall-through, plus the
                         hostVersion/indexOrg/indexProject/indexFeed/
                         indexPackage vars + protocol const, injected via
-                        -ldflags — calls plugincmd.Initialize(), holds
+                        -ldflags — calls builtins.Initialize(), holds
                         no embedding logic), plugins.go (search/
                         install/remove/upgrade), sync.go, support.go
 internal/bootstrap/    embedded default plugins + seed index (see above):
@@ -354,9 +354,11 @@ internal/bootstrap/    embedded default plugins + seed index (see above):
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
-internal/plugincmd/    search/install/remove/upgrade/sync/support,
-                        --version report, first-run Initialize (+ index
-                        resolver)
+internal/builtins/     the builtin commands, one file each: search.go
+                        (search/support), install.go, remove.go,
+                        upgrade.go, sync.go (sync + the pre-install index
+                        check), version.go (--version), initialize.go
+                        (first run); built on internal/index/state/ui
 internal/ui/           TTY-aware output: aligned tables, color, status
                         lines, spinner, y/N prompt
 internal/index/        feed-archive catalog: downloads + extracts the
@@ -442,8 +444,8 @@ Artifacts feed by the separate index repo's own pipeline (see
 `index-repo/azure-pipelines-publish-index.yml`) on every merge to its
 `main`. `dongle` downloads the **latest** version via `az artifacts
 universal download --version "*"`, extracts it, and caches it locally
-(1h TTL — see `internal/plugincmd.IndexTTL`), same as
-`internal/plugincmd.downloadArtifact` does for plugin binaries. `dongle`
+(1h TTL — see `internal/builtins.IndexTTL`), same as
+`internal/builtins.downloadArtifact` does for plugin binaries. `dongle`
 does not manage credentials itself — it shells out to `az`, which
 authenticates however you're already logged in (`az login`), or via
 `AZURE_DEVOPS_EXT_PAT` in CI.

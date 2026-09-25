@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/andreimladin/dongle/internal/plugincmd"
+	"github.com/andreimladin/dongle/internal/builtins"
 )
 
 // syncCmd replaces the old `dongle refresh` (and before it `dongle index
@@ -20,6 +20,6 @@ this binary) stays in use.`,
 	Example: `  dongle sync`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Sync())
+		return exitCode(builtins.Sync())
 	},
 }

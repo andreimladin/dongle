@@ -165,7 +165,7 @@ func installEmbeddedDefault(st *state.State, d Default) error {
 	return nil
 }
 
-// hostBinaryName mirrors internal/plugincmd's canonical entrypoint naming
+// hostBinaryName mirrors internal/builtins' canonical entrypoint naming
 // (<host binary name>-<plugin name>) so embedded defaults land under the
 // same convention as plugins installed via `dongle install`.
 func hostBinaryName() string {
