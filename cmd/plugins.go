@@ -11,19 +11,6 @@ import (
 // validation is cobra's job, everything else — output, errors, exit codes
 // — is internal/plugincmd's.
 
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List installed plugins",
-	Long: `List the plugins installed on this machine and their active versions.
-
-Reads local state only; never contacts the feed.`,
-	Example: `  dongle list`,
-	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.List())
-	},
-}
-
 var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "List plugins available in the index",

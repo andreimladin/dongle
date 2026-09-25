@@ -30,13 +30,13 @@ sh demo.sh          # local-dir install lifecycle, end to end
 ```
 dongle search                 list plugins available in the index
 dongle install <name>         install a plugin from the index
-dongle list                   list installed plugins
 dongle upgrade [name]         upgrade one plugin, or every installed plugin
 dongle remove <name>          remove an installed plugin
 dongle sync                   download the latest plugin index from the feed
 dongle support <name>         show where to get help with a plugin
 dongle <plugin> [args...]     run an installed plugin (args passed through)
 dongle --version              host, index and installed-plugin versions
+                              (this is also how to see what's installed)
 dongle [command] --help       help (there is no `help` command)
 ```
 
@@ -296,7 +296,8 @@ Real and testable now:
 - Plugin **dispatch** — unknown command → resolve via `state.json` (entrypoint +
   requires recorded there at install time, no per-plugin manifest on disk) →
   compat gate → exec one-shot child, inheriting the terminal.
-- **install / remove / list** from the index; **search** from the
+- **install / remove** from the index (installed plugins are listed by
+  `dongle --version`); **search** from the
   index cache.
 - **upgrade**: `dongle upgrade <name>` (or bare `dongle upgrade` for every
   installed plugin) compares an installed plugin's
@@ -345,7 +346,7 @@ cmd/                    host entry (cobra): main.go, root.go (root command +
                         hostVersion/indexOrg/indexProject/indexFeed/
                         indexPackage vars + protocol const, injected via
                         -ldflags — calls plugincmd.Initialize(), holds
-                        no embedding logic), plugins.go (list/search/
+                        no embedding logic), plugins.go (search/
                         install/remove/upgrade), sync.go, support.go
 internal/bootstrap/    embedded default plugins + seed index (see above):
                         bootstrap.go / noop.go, plus the staged embedded/
@@ -353,7 +354,7 @@ internal/bootstrap/    embedded default plugins + seed index (see above):
 internal/compat/       semver + host/protocol gate (single source of truth)
 internal/state/        installed-plugin registry (entrypoint + requires) + on-disk paths
 internal/dispatch/     resolve -> compat -> exec
-internal/plugincmd/    list/search/install/remove/upgrade/sync/support,
+internal/plugincmd/    search/install/remove/upgrade/sync/support,
                         --version report, first-run Initialize (+ index
                         resolver)
 internal/ui/           TTY-aware output: aligned tables, color, status

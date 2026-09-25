@@ -83,7 +83,7 @@ keep this contract in sync with the README and `pkg/pluginsdk`.
 | `internal/state` | installed-plugin registry (`state.json`) + on-disk path helpers (XDG layout) |
 | `internal/auth` | credential store (`credentials.json`), `Login`/`Logout`, and `Prepare` (the injection broker) |
 | `internal/dispatch` | resolves a command name to a plugin, compat-checks, brokers auth, execs — the core request path |
-| `internal/plugincmd` | `dongle list/search/install/remove/upgrade/sync` + the `--version` report |
+| `internal/plugincmd` | `dongle search/install/remove/upgrade/sync/support` + the `--version` report (which also lists installed plugins) |
 | `pkg/pluginsdk` | optional helper library for Go-authored plugins (`LoadContext`, `Token`, `Main`) |
 | `plugins/deploy` | sample plugin demonstrating both `injectAs` modes, using `pluginsdk` |
 

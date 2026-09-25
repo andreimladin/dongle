@@ -1,5 +1,5 @@
 // Package plugincmd implements dongle's plugin-management builtins —
-// list, search, install, remove, upgrade, sync, support — plus the
+// search, install, remove, upgrade, sync, support — plus the
 // --version report and first-run initialization. Each exported function is the whole of one command: it prints
 // its own results/errors and returns the process exit code, so cmd/ stays
 // a thin cobra adapter.
@@ -82,26 +82,6 @@ func sortedNames(st *state.State) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// List shows what's installed (from state.json — never touches the network).
-func List() int {
-	st, err := state.Load()
-	if err != nil {
-		ui.Errorf("%v", err)
-		return 1
-	}
-	if len(st.Plugins) == 0 {
-		ui.Infof("No plugins installed. Find some with `dongle search`.")
-		return 0
-	}
-	var t ui.Table
-	t.Style(0, ui.Out.Bold)
-	for _, n := range sortedNames(st) {
-		t.Row(0, n, st.Plugins[n].ActiveVersion)
-	}
-	t.Write(os.Stdout)
-	return 0
 }
 
 // EnsureFresh is index.EnsureFresh(IndexTTL) for the builtins that only

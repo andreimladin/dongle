@@ -35,7 +35,7 @@ func Run(hostVersion, protocol, name string, args []string) int {
 	}
 	inst, ok := st.Plugins[name]
 	if !ok {
-		ui.Errorf("plugin %q is not installed (see `dongle list`)", name)
+		ui.Errorf("plugin %q is not installed (see `dongle --version`)", name)
 		return 127
 	}
 

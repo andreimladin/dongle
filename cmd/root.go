@@ -164,7 +164,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", c.CommandPath())
 		return exitCode(2)
 	})
-	rootCmd.AddCommand(listCmd, searchCmd, installCmd, removeCmd, upgradeCmd, syncCmd, supportCmd)
+	rootCmd.AddCommand(searchCmd, installCmd, removeCmd, upgradeCmd, syncCmd, supportCmd)
 }
 
 // Execute runs the root command and returns the process exit code.
