@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/dispatch"
 	"github.com/andreimladin/dongle/internal/index"
+	"github.com/andreimladin/dongle/internal/plugincmd"
 )
 
 // Build-time build inputs, injected via -ldflags at build time (see
@@ -17,7 +19,7 @@ import (
 // truth that script bakes these values from). A plain `go build ./cmd`
 // leaves them at these defaults: hostVersion "dev", no index feed identity
 // (DONGLE_INDEX_ORG/DONGLE_INDEX_FEED/DONGLE_INDEX_PACKAGE are then
-// required to use `dongle refresh`/`dongle plugin` commands).
+// required to use `dongle sync` and the index-reading commands).
 var (
 	hostVersion  = "dev"
 	indexOrg     = ""             // injected at build; env DONGLE_INDEX_ORG overrides
@@ -54,22 +56,24 @@ var rootCmd = &cobra.Command{
 	Short: "dongle — one CLI, plug in the rest",
 	Long: `dongle — one CLI, plug in the rest
 
-Builtins:
-  dongle version                   print the CLI version and the cached index version
-  dongle refresh                   force-download the latest plugin index from the feed
-  dongle plugin search             list plugins available in the index
-  dongle plugin install <name>     install a plugin from the index
-  dongle plugin list               list installed plugins
-  dongle plugin update <name>      update an installed plugin to the index's current version
-  dongle plugin uninstall <name>
-  dongle support <plugin-name>     show where to get help with a plugin
-  dongle <name> [args...]          run an installed plugin`,
+dongle is a host CLI that other CLIs plug into. Besides the builtin
+commands below, any installed plugin runs as a top-level command:
+
+  dongle <plugin> [args...]
+
+Everything after the plugin name is passed to it unchanged.`,
+	Example: `  dongle search            # what can I install?
+  dongle install deploy    # install a plugin
+  dongle deploy --help     # run it
+  dongle upgrade           # upgrade everything installed
+  dongle --version         # host, index and plugin versions`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	// Anything not matched to a builtin subcommand by cobra's Find lands
 	// here as a candidate plugin invocation. DisableFlagParsing keeps cobra
 	// from trying to interpret the plugin's own flags — args are handed to
-	// dispatch.Run completely unparsed.
+	// dispatch.Run completely unparsed. It also means the root's own
+	// --help/--version flags arrive here as plain args (see below).
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -79,39 +83,88 @@ Builtins:
 		switch args[0] {
 		case "-h", "--help":
 			return cmd.Help()
-		default:
-			// Not a builtin -> resolve to an installed plugin and exec it.
-			return exitCode(dispatch.Run(hostVersion, protocol, args[0], args[1:]))
+		case "--version":
+			return exitCode(plugincmd.Version(hostVersion, protocol))
 		}
+		return runPlugin(cmd, args)
 	},
 }
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "print the CLI version and the cached index version",
+// runPlugin applies the fall-through rule for a name cobra didn't match to
+// a builtin: an installed plugin is dispatched (args passed through
+// unchanged); anything else is an error followed by the root help.
+func runPlugin(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if strings.HasPrefix(name, "-") {
+		fmt.Fprintf(os.Stderr, "error: unknown flag %q\n\n", name)
+		return usageError(cmd)
+	}
+	installed, err := dispatch.IsInstalled(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: reading state:", err)
+		return exitCode(1)
+	}
+	if installed {
+		return exitCode(dispatch.Run(hostVersion, protocol, name, args[1:]))
+	}
+	fmt.Fprintf(os.Stderr, "error: command %q is not supported\n", name)
+	if s := cmd.SuggestionsFor(name); len(s) > 0 {
+		fmt.Fprintf(os.Stderr, "Did you mean: %s?\n", strings.Join(s, ", "))
+	}
+	fmt.Fprintln(os.Stderr)
+	return usageError(cmd)
+}
+
+// usageError prints the root help to stderr (it's a diagnostic here, not
+// the command's output) and returns the usage-error exit code.
+func usageError(cmd *cobra.Command) error {
+	root := cmd.Root()
+	root.SetOut(os.Stderr)
+	_ = root.Help()
+	root.SetOut(nil)
+	return exitCode(2)
+}
+
+// helpCmd displaces cobra's built-in `help` command: dongle's help is
+// --help/-h only. cobra always registers *some* help command on a root
+// with subcommands, so this hidden one takes the slot under a name nobody
+// types (cobra's templates special-case the literal name "help", so it
+// can't be that). `dongle help` itself then matches no builtin and goes
+// through the root's builtin-or-plugin resolution like any other name — an
+// error plus the root help, unless a plugin named "help" is installed.
+var helpCmd = &cobra.Command{
+	Use:                "__help",
+	Hidden:             true,
+	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("dongle %s (protocol %s)\n", hostVersion, protocol)
-		v, ok := index.CachedVersion()
-		origin, _ := index.CachedOrigin()
-		switch {
-		case !ok:
-			fmt.Println("index: not yet downloaded (run `dongle refresh` or any plugin command)")
-		case origin == index.OriginEmbedded:
-			fmt.Printf("index %s (embedded; run `dongle refresh` to check for updates)\n", v)
-		default:
-			fmt.Printf("index %s\n", v)
-		}
-		return nil
+		return runPlugin(cmd.Root(), append([]string{cmd.Name()}, args...))
 	},
 }
+
+// usageTemplate is cobra's default usage template with the root's usage
+// lines replaced to describe both ways dongle is invoked; subcommands keep
+// cobra's default lines.
+const usageTemplate = `Usage:{{if not .HasParent}}
+  {{.CommandPath}} <command> [flags]
+  {{.CommandPath}} <plugin> [args...]{{else}}{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{end}}{{if gt (len .Aliases) 0}}
+`
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SetHelpCommand(helpCmd)
+	def := rootCmd.UsageTemplate()
+	rootCmd.SetUsageTemplate(usageTemplate + def[strings.Index(def, "\nAliases:"):])
+	// --version is handled by hand in rootCmd.RunE (flag parsing is off on
+	// the root); it's declared here only so it's listed in --help.
+	rootCmd.Flags().Bool("version", false, "print dongle, index and installed plugin versions")
 	rootCmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", c.CommandPath())
 		return exitCode(2)
 	})
-	rootCmd.AddCommand(versionCmd, refreshCmd, pluginCmd, supportCmd)
+	rootCmd.AddCommand(listCmd, searchCmd, installCmd, removeCmd, upgradeCmd, syncCmd, supportCmd)
 }
 
 // Execute runs the root command and returns the process exit code.
@@ -125,12 +178,17 @@ func Execute() int {
 	// builds get the no-op in internal/bootstrap/noop.go.
 	bootstrap.InstallDefaults()
 
-	if err := rootCmd.Execute(); err != nil {
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil {
 		var ee *exitError
 		if errors.As(err, &ee) {
 			return ee.code
 		}
-		return 1
+		// Anything else is cobra's own (e.g. wrong argument count); errors
+		// are silenced on the root, so report it here.
+		fmt.Fprintln(os.Stderr, "error:", err)
+		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", cmd.CommandPath())
+		return 2
 	}
 	return 0
 }

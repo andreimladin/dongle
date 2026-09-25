@@ -13,6 +13,18 @@ import (
 	"github.com/andreimladin/dongle/internal/state"
 )
 
+// IsInstalled reports whether a plugin named name is registered in local
+// state — the test the host uses to decide whether a non-builtin command
+// name is a plugin invocation or an unsupported command.
+func IsInstalled(name string) (bool, error) {
+	st, err := state.Load()
+	if err != nil {
+		return false, err
+	}
+	_, ok := st.Plugins[name]
+	return ok, nil
+}
+
 // Run executes the plugin registered under name with args, returning the
 // resulting process exit code (or a nonzero host error code).
 func Run(hostVersion, protocol, name string, args []string) int {
@@ -23,7 +35,7 @@ func Run(hostVersion, protocol, name string, args []string) int {
 	}
 	inst, ok := st.Plugins[name]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "unknown command %q (try `dongle plugin list`)\n", name)
+		fmt.Fprintf(os.Stderr, "error: plugin %q is not installed (see `dongle list`)\n", name)
 		return 127
 	}
 

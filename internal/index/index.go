@@ -187,7 +187,7 @@ func EnsureFresh(ttl time.Duration) error {
 }
 
 // Refresh forces a download of the latest index from the feed now,
-// ignoring the TTL (`dongle refresh`). On failure it falls back to
+// ignoring the TTL (`dongle sync`). On failure it falls back to
 // whatever is already usable instead of leaving dongle without any index
 // at all — the existing cache if there is one, otherwise the embedded seed
 // baked into this binary — printing a warning either way. It returns an
@@ -553,7 +553,7 @@ func LoadFileStrict(path string) (*Manifest, error) {
 	return &m, nil
 }
 
-// List returns every plugin manifest in the cache (for `dongle plugin search`).
+// List returns every plugin manifest in the cache (for `dongle search`).
 func List() ([]Manifest, error) {
 	dir := filepath.Join(cacheDir(), "plugins")
 	files, err := os.ReadDir(dir)
