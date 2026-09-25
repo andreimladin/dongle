@@ -46,13 +46,46 @@ var installCmd = &cobra.Command{
 
 The plugin's manifest is resolved from the index, checked for
 compatibility with this dongle, and its binary for this OS/architecture is
-downloaded from the feed. Once installed, run it as ` + "`dongle <name>`" + `.`,
+downloaded from the feed. Once installed, run it as ` + "`dongle <name>`" + `.
+` + indexCheckHelp,
 	Example: `  dongle install deploy
-  dongle deploy --help`,
+  dongle install deploy --sync      # refresh the index first, no prompt
+  dongle install deploy --no-sync   # use the cached index as-is`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(plugincmd.Install(hostVersion, protocol, args[0]))
+		return exitCode(plugincmd.Install(hostVersion, protocol, args[0], syncMode(cmd)))
 	},
+}
+
+// indexCheckHelp is the shared --help paragraph for the commands that
+// check the feed for a newer index before acting.
+const indexCheckHelp = `
+Before acting, the feed is checked for a newer plugin index than the cached
+one. If there is one, you're asked whether to update the index first; when
+not running in a terminal, the cached index is used and a note says a newer
+one is available. --sync / --no-sync make that choice up front.`
+
+// addSyncFlags registers the --sync/--no-sync pair on cmd.
+func addSyncFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool("sync", false, "update the plugin index first if a newer one is available (no prompt)")
+	cmd.Flags().Bool("no-sync", false, "use the cached plugin index without checking for a newer one")
+	cmd.MarkFlagsMutuallyExclusive("sync", "no-sync")
+}
+
+// syncMode maps cmd's --sync/--no-sync flags to a plugincmd.SyncMode.
+func syncMode(cmd *cobra.Command) plugincmd.SyncMode {
+	if on, _ := cmd.Flags().GetBool("sync"); on {
+		return plugincmd.SyncAlways
+	}
+	if off, _ := cmd.Flags().GetBool("no-sync"); off {
+		return plugincmd.SyncNever
+	}
+	return plugincmd.SyncAsk
+}
+
+func init() {
+	addSyncFlags(installCmd)
+	addSyncFlags(upgradeCmd)
 }
 
 var removeCmd = &cobra.Command{
@@ -74,15 +107,17 @@ var upgradeCmd = &cobra.Command{
 
 With no argument, every installed plugin is upgraded; with a name, only
 that plugin. Only installed plugins are touched, and a plugin whose
-installed version is newer than the index's is never downgraded.`,
-	Example: `  dongle upgrade          # upgrade everything installed
-  dongle upgrade deploy   # upgrade just one plugin`,
+installed version is newer than the index's is never downgraded.
+` + indexCheckHelp,
+	Example: `  dongle upgrade            # upgrade everything installed
+  dongle upgrade deploy     # upgrade just one plugin
+  dongle upgrade --sync     # refresh the index first, no prompt`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := ""
 		if len(args) == 1 {
 			name = args[0]
 		}
-		return exitCode(plugincmd.Upgrade(hostVersion, protocol, name))
+		return exitCode(plugincmd.Upgrade(hostVersion, protocol, name, syncMode(cmd)))
 	},
 }

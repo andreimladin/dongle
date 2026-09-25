@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,28 +187,32 @@ func EnsureFresh(ttl time.Duration) error {
 	return nil
 }
 
-// Refresh forces a download of the latest index from the feed now,
-// ignoring the TTL (`dongle sync`). On failure it falls back to
-// whatever is already usable instead of leaving dongle without any index
-// at all — the existing cache if there is one, otherwise the embedded seed
-// baked into this binary — printing a warning either way. It returns an
-// error only when the download failed AND nothing usable could be
-// produced (no cache, no embedded seed).
-func Refresh() error {
-	err := download()
-	if err == nil {
-		return nil
-	}
-	if _, statErr := os.Stat(cacheDir()); statErr == nil {
-		fmt.Fprintf(os.Stderr, "warning: could not refresh index (%v); keeping cached index\n", err)
+// HasCache reports whether any index is cached locally.
+func HasCache() bool {
+	_, err := os.Stat(cacheDir())
+	return err == nil
+}
+
+// EnsureCache makes sure *some* index is cached, without regard to its
+// age: when nothing is cached yet it seeds the cache from the embedded
+// index (offline), falling back to a feed download only when nothing was
+// embedded. Commands that check the feed for a newer index themselves
+// (install/upgrade) use this instead of EnsureFresh, so a stale cache is
+// never silently replaced behind the user's back.
+func EnsureCache() error {
+	if HasCache() {
 		return nil
 	}
 	if seedFromEmbedded() {
-		fmt.Fprintf(os.Stderr, "warning: could not refresh index (%v); seeded from the embedded index\n", err)
 		return nil
 	}
-	return err
+	return download()
 }
+
+// SeedEmbedded seeds the cache from the index embedded in this binary,
+// replacing whatever is cached. It reports false when nothing was embedded
+// (a plain, non -tags-embed build) or seeding failed.
+func SeedEmbedded() bool { return seedFromEmbedded() }
 
 // seedFromEmbedded extracts the index archive baked into this binary (see
 // internal/bootstrap.EmbeddedIndex and scripts/build.sh's fetch_embedded)
@@ -300,53 +305,73 @@ func writeOrigin(origin string) error {
 	return os.WriteFile(originPath(), []byte(origin), 0o644)
 }
 
-// download fetches the latest version of the index package from the feed,
-// extracts it, and atomically swaps it in as the new cache. It stages
-// everything under a temp dir on the same filesystem as the data dir so
-// the final swap is a same-filesystem rename.
+// download fetches the latest version of the index package from the feed
+// and swaps it in as the new cache.
 func download() error {
-	if _, err := exec.LookPath("az"); err != nil {
-		return fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
-	}
-	if err := os.MkdirAll(state.DataDir(), 0o755); err != nil {
+	latest, err := FetchLatest()
+	if err != nil {
 		return err
 	}
+	return latest.Apply()
+}
 
+// Latest is the latest index package downloaded from the feed and
+// extracted into a staging dir, but not yet installed as the cache — so a
+// caller can compare its version against the cached one and decide
+// whether to Apply it or Discard it.
+type Latest struct {
+	Version string // from the archive's VERSION file; empty if it had none
+
+	staging    string
+	extractDir string
+}
+
+// FetchLatest downloads the latest version of the index package from the
+// feed and extracts it into a staging dir under the data dir (same
+// filesystem, so Apply's swap is a rename). The caller must Apply or
+// Discard the result.
+func FetchLatest() (*Latest, error) {
+	if _, err := exec.LookPath("az"); err != nil {
+		return nil, fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+	}
 	stagingRoot := filepath.Join(state.DataDir(), ".staging")
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	staging, err := os.MkdirTemp(stagingRoot, "index-")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer os.RemoveAll(staging)
+	l := &Latest{staging: staging, extractDir: filepath.Join(staging, "extracted")}
 
-	dlDir := filepath.Join(staging, "download")
-	archivePath, err := downloadArchive(dlDir)
+	archivePath, err := downloadArchive(filepath.Join(staging, "download"))
 	if err != nil {
-		return err
+		l.Discard()
+		return nil, err
 	}
-
-	extractDir := filepath.Join(staging, "extracted")
-	if err := extractTarGz(archivePath, extractDir); err != nil {
-		return fmt.Errorf("extract index archive: %w", err)
+	if err := extractTarGz(archivePath, l.extractDir); err != nil {
+		l.Discard()
+		return nil, fmt.Errorf("extract index archive: %w", err)
 	}
-
-	version := ""
-	if b, err := os.ReadFile(filepath.Join(extractDir, "VERSION")); err == nil {
-		version = strings.TrimSpace(string(b))
+	if b, err := os.ReadFile(filepath.Join(l.extractDir, "VERSION")); err == nil {
+		l.Version = strings.TrimSpace(string(b))
 	}
+	return l, nil
+}
 
+// Apply installs the fetched index as the cache (atomically replacing the
+// previous one), records its version and origin, and marks the cache
+// fresh.
+func (l *Latest) Apply() error {
+	defer l.Discard()
 	if err := os.RemoveAll(cacheDir()); err != nil {
 		return err
 	}
-	if err := os.Rename(extractDir, cacheDir()); err != nil {
+	if err := os.Rename(l.extractDir, cacheDir()); err != nil {
 		return fmt.Errorf("install extracted index: %w", err)
 	}
-
-	if version != "" {
-		if err := os.WriteFile(versionPath(), []byte(version), 0o644); err != nil {
+	if l.Version != "" {
+		if err := os.WriteFile(versionPath(), []byte(l.Version), 0o644); err != nil {
 			return err
 		}
 	}
@@ -354,6 +379,40 @@ func download() error {
 		return err
 	}
 	return touchMeta()
+}
+
+// Discard removes the fetched index's staging dir without installing it.
+// Safe to call more than once.
+func (l *Latest) Discard() { os.RemoveAll(l.staging) }
+
+// MarkChecked records that the cached index was just confirmed current
+// against the feed, restarting its TTL without re-downloading it.
+func MarkChecked() error { return touchMeta() }
+
+// IsNewer reports whether index version a is newer than b. Index versions
+// are dotted numbers (e.g. 2024.03.01.1), compared part by part
+// numerically; a non-numeric part falls back to a string comparison, and
+// an empty b (no version recorded) is older than anything.
+func IsNewer(a, b string) bool {
+	a = strings.TrimPrefix(strings.TrimSpace(a), "v")
+	b = strings.TrimPrefix(strings.TrimSpace(b), "v")
+	if b == "" {
+		return a != ""
+	}
+	ap, bp := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(ap) && i < len(bp); i++ {
+		an, aerr := strconv.Atoi(ap[i])
+		bn, berr := strconv.Atoi(bp[i])
+		switch {
+		case aerr == nil && berr == nil:
+			if an != bn {
+				return an > bn
+			}
+		case ap[i] != bp[i]:
+			return ap[i] > bp[i]
+		}
+	}
+	return len(ap) > len(bp)
 }
 
 // downloadArchive shells out to the Azure CLI to pull the latest version

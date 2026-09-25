@@ -10,8 +10,12 @@ import (
 	"unicode/utf8"
 )
 
-// colGap is the space between aligned columns.
-const colGap = 4
+// Gaps between aligned columns: wider after the first (name) column,
+// narrower between the value columns that follow it.
+const (
+	firstGap = 4
+	colGap   = 2
+)
 
 // Table accumulates rows and prints them with every column aligned across
 // all rows, including rows at different indents (so a grouped listing's
@@ -68,7 +72,11 @@ func (t *Table) Write(w io.Writer) {
 			if i == 0 {
 				used += l.indent
 			}
-			b.WriteString(strings.Repeat(" ", widths[i]-used+colGap))
+			gap := colGap
+			if i == 0 {
+				gap = firstGap
+			}
+			b.WriteString(strings.Repeat(" ", widths[i]-used+gap))
 		}
 		fmt.Fprintln(w, strings.TrimRight(b.String(), " "))
 	}

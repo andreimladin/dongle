@@ -22,10 +22,12 @@ import (
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
-// IndexTTL is how long a cloned index cache is trusted before commands that
-// read it force a refresh. Exported so other builtins that read the index
+// IndexTTL is how long a cached index is trusted before commands that
+// read it (search, support) refresh it from the feed. install and upgrade
+// don't rely on it: they always check the feed for a newer index first
+// (see prepareIndex). Exported so other builtins that read the index
 // (e.g. `dongle support`) stay on the same freshness policy.
-const IndexTTL = 24 * time.Hour
+const IndexTTL = time.Hour
 
 // Version prints the grouped `dongle --version` report: the host's own
 // version, the index version in use, and every installed plugin.
@@ -62,6 +64,10 @@ func indexVersionLabel() string {
 		return v + "  (embedded)"
 	}
 	return v
+}
+
+func sortManifests(ms []index.Manifest) {
+	sort.Slice(ms, func(i, j int) bool { return ms[i].Name < ms[j].Name })
 }
 
 func sortedNames(st *state.State) []string {
@@ -107,7 +113,7 @@ func Search() int {
 		fmt.Fprintln(os.Stderr, "The plugin index is empty.")
 		return 0
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	sortManifests(entries)
 	var t ui.Table
 	for _, e := range entries {
 		t.Row(0, e.Name, e.Version, e.ShortDescription)
@@ -116,26 +122,13 @@ func Search() int {
 	return 0
 }
 
-// Sync force-downloads the latest index from the feed (`dongle sync`).
-func Sync() int {
-	if err := index.Refresh(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
-	}
-	v, _ := index.CachedVersion()
-	if origin, ok := index.CachedOrigin(); ok && origin == index.OriginEmbedded {
-		fmt.Printf("could not reach the feed; still on the embedded index %s\n", v)
-	} else {
-		fmt.Printf("index synced (%s)\n", v)
-	}
-	return 0
-}
-
 // Upgrade brings installed plugins up to the versions the index currently
 // declares: just name when it's non-empty, otherwise every installed
 // plugin. Only installed plugins are considered, and a plugin whose
 // installed version is ahead of the index is never downgraded.
-func Upgrade(hostVersion, protocol, name string) int {
+// mode decides what happens when the feed has a newer index than the
+// cache (see prepareIndex).
+func Upgrade(hostVersion, protocol, name string, mode SyncMode) int {
 	st, err := state.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -151,7 +144,7 @@ func Upgrade(hostVersion, protocol, name string) int {
 		return 0
 	}
 
-	if err := index.EnsureFresh(IndexTTL); err != nil {
+	if err := prepareIndex(mode); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
@@ -236,21 +229,16 @@ func upgradeOne(hostVersion, protocol string, inst state.Installed, all bool) (i
 	return 0, upgradeDone
 }
 
-// Install resolves name from the index and installs it.
-func Install(hostVersion, protocol, name string) int {
-	if err := index.EnsureFresh(IndexTTL); err != nil {
+// Install resolves name from the index and installs it. mode decides what
+// happens when the feed has a newer index than the cache (see
+// prepareIndex).
+func Install(hostVersion, protocol, name string, mode SyncMode) int {
+	if err := prepareIndex(mode); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 
 	m, err := index.Load(name)
-	if errors.Is(err, index.ErrNotFound) {
-		// A miss is exactly when a stale cache is the likely cause — force a
-		// refresh and try once more before giving up.
-		if rerr := index.Refresh(); rerr == nil {
-			m, err = index.Load(name)
-		}
-	}
 	if errors.Is(err, index.ErrNotFound) {
 		fmt.Fprintf(os.Stderr, "error: no plugin named %s in the index (see `dongle search`)\n", name)
 		return 1
