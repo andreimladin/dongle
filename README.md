@@ -283,10 +283,11 @@ its embedded seed as `(embedded)` — a hint that it may be behind and
 
 ```
 $ dongle --version
-dongle    1.4.0  (protocol v1)
-index     2024.03.01.1  (embedded)
-plugins:
-  deploy  1.2.0
+dongle    1.4.0
+index     2024.03.01.1 (embedded)
+
+installed plugins:
+  deploy    1.2.0
 ```
 
 ## What works vs. what's stubbed

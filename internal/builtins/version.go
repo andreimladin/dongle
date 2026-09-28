@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/andreimladin/dongle/internal/index"
@@ -8,8 +9,9 @@ import (
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
-// Version prints the grouped `dongle --version` report: the host's own
-// version, the index version in use, and every installed plugin.
+// Version prints the `dongle --version` report: the host's own version
+// and the index version in use as aligned key/value lines, then a blank
+// line and every installed plugin (or "no plugins installed").
 func Version(hostVersion string) int {
 	st, err := state.Load()
 	if err != nil {
@@ -17,23 +19,33 @@ func Version(hostVersion string) int {
 		return 1
 	}
 
-	p := ui.Out
-	var t ui.Table
-	t.Style(0, p.Bold)
-	t.Row(0, "dongle", hostVersion)
+	var top ui.Table
+	top.Row(0, "dongle", hostVersion)
 	iv, note := indexVersionLabel()
-	t.Row(0, "index", iv, p.Dim(note))
+	top.Row(0, "index", iv+suffix(note))
+	top.Write(os.Stdout)
+
+	fmt.Println()
 	names := sortedNames(st)
 	if len(names) == 0 {
-		t.Heading(p.Bold("plugins:") + "  " + p.Dim("none installed"))
-	} else {
-		t.Heading(p.Bold("plugins:"))
-		for _, n := range names {
-			t.Row(2, n, st.Plugins[n].ActiveVersion)
-		}
+		fmt.Println("no plugins installed")
+		return 0
 	}
-	t.Write(os.Stdout)
+	fmt.Println("installed plugins:")
+	var plugins ui.Table
+	for _, n := range names {
+		plugins.Row(2, n, st.Plugins[n].ActiveVersion)
+	}
+	plugins.Write(os.Stdout)
 	return 0
+}
+
+// suffix returns note preceded by a space, or "" when note is empty.
+func suffix(note string) string {
+	if note == "" {
+		return ""
+	}
+	return " " + note
 }
 
 // indexVersionLabel describes the cached index for --version: its
