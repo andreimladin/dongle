@@ -33,7 +33,7 @@
 # not a dongle subcommand) to read that plugin's Azure Artifacts feed
 # coordinates, per-platform package name, and version straight out of its
 # index manifest (plugins/<name>.yaml) — parsed by the exact same
-# internal/index code `dongle plugin install` uses, not reimplemented — then
+# internal/index code `dongle install` uses, not reimplemented — then
 # downloads it via `az artifacts universal download`. Fails fast, naming the
 # plugin and platform, if a plugin has no published build for <os>/<arch>
 # rather than silently staging a binary with that default missing.
@@ -152,7 +152,7 @@ fetch_embedded() {
 	# internal/bootstrap.EmbeddedIndex): a released dongle then has a
 	# working plugin catalog from its very first run, fully offline (see
 	# internal/index's embedded-seed precedence). manifest.json's "index"
-	# field records the version so internal/index and `dongle version` can
+	# field records the version so internal/index and `dongle --version` can
 	# tell it apart from one later fetched from the feed.
 	cp "$index_archive" "$EMBED_DIR/index.tar.gz"
 	echo "  staged embedded index (version $index_version)"
@@ -198,7 +198,7 @@ fetch_embedded() {
 			exit 1
 		fi
 
-		# Canonicalize to the same entrypoint naming `dongle plugin install`
+		# Canonicalize to the same entrypoint naming `dongle install`
 		# uses: <host binary name>-<plugin name>.
 		local file="dongle-${name}"
 		[ "$goos" = "windows" ] && file="${file}.exe"
