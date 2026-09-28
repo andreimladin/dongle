@@ -32,7 +32,7 @@ dongle search                 list plugins available in the index
 dongle install <name>         install a plugin from the index
 dongle upgrade [name]         upgrade one plugin, or every installed plugin
 dongle remove <name>          remove an installed plugin
-dongle sync                   download the latest plugin index from the feed
+dongle update                 download the latest plugin index from the feed
 dongle support <name>         show where to get help with a plugin
 dongle <plugin> [args...]     run an installed plugin (args passed through)
 dongle --version              host, index and installed-plugin versions
@@ -89,7 +89,7 @@ time via `-ldflags -X`:
   `hostVersion` is `"dev"` and no index org/feed is baked in — set
   `DONGLE_INDEX_ORG`, `DONGLE_INDEX_FEED` (and optionally
   `DONGLE_INDEX_PROJECT`/`DONGLE_INDEX_PACKAGE`) at runtime to use `dongle
-  sync` and the index-reading commands locally.
+  update` and the index-reading commands locally.
 - `scripts/build.sh`'s `build_binary` stamps all five, with the index feed
   identity read from `configs/build.yaml` (via `tools/readconfig` — see
   "Embedded default plugins" below) — the script itself hardcodes none of it.
@@ -253,7 +253,7 @@ needs the catalog:
    cache, entirely offline, no feed call. A plain `go build ./cmd` (no
    `-tags embed`) has nothing embedded, so this falls back to a feed
    download instead, same as before this feature.
-3. **`dongle sync`, or a stale cache** — downloads the latest index from
+3. **`dongle update`, or a stale cache** — downloads the latest index from
    the feed and replaces the cache on success. On failure it falls back to
    whatever is already usable — the existing cache, or (only if there's no
    cache yet) the embedded seed — so the CLI always ends up with *some*
@@ -265,7 +265,7 @@ check the feed for a **newer index version** than the cached one:
 - **Newer index, interactive** (stdin is a terminal): you're asked
   `A newer plugin index is available (<old> -> <new>). Update the index
   first? [y/N]`. Yes updates the cache (printing the new index and its
-  plugins, as `dongle sync` does) and then installs/upgrades against it; no
+  plugins, as `dongle update` does) and then installs/upgrades against it; no
   uses the cached index.
 - **Newer index, non-interactive** (piped/CI): never prompts or hangs —
   the cached index is used and a note says a newer one is available.
@@ -279,7 +279,7 @@ the latest).
 The cache tracks not just the version in use but where it came from
 (`internal/index.CachedOrigin`), so `dongle --version` marks an index still on
 its embedded seed as `(embedded)` — a hint that it may be behind and
-`dongle sync` is worth running once you have network access:
+`dongle update` is worth running once you have network access:
 
 ```
 $ dongle --version
@@ -308,7 +308,7 @@ Real and testable now:
   in `state.json` moves), so rollback stays possible.
 - **Compatibility gates** (`requires.host` range + `requires.protocol` exact) at
   both install time and dispatch time, from the shared `internal/compat`.
-- **Feed-archive index**: `dongle sync`, `dongle --version` (shows the
+- **Feed-archive index**: `dongle update`, `dongle --version` (shows the
   cached index version), 1h TTL cache, offline-tolerant refresh, `dongle
   search`, and install-by-name resolution up to the download.
 
@@ -347,7 +347,7 @@ cmd/                    host entry (cobra): main.go, root.go (root command +
                         indexPackage vars + protocol const, injected via
                         -ldflags — calls builtins.Initialize(), holds
                         no embedding logic), plugins.go (search/
-                        install/remove/upgrade), sync.go, support.go
+                        install/remove/upgrade), update.go, support.go
 internal/bootstrap/    embedded default plugins + seed index (see above):
                         bootstrap.go / noop.go, plus the staged embedded/
                         payload (plugin binaries + index.tar.gz)
@@ -356,7 +356,7 @@ internal/state/        installed-plugin registry (entrypoint + requires) + on-di
 internal/dispatch/     resolve -> compat -> exec
 internal/builtins/     the builtin commands, one file each: search.go
                         (search/support), install.go, remove.go,
-                        upgrade.go, sync.go (sync + the pre-install index
+                        upgrade.go, update.go (update + the pre-install index
                         check), version.go (--version), initialize.go
                         (first run); built on internal/index/state/ui
 internal/ui/           TTY-aware output: aligned tables, color, status
@@ -450,7 +450,7 @@ does not manage credentials itself — it shells out to `az`, which
 authenticates however you're already logged in (`az login`), or via
 `AZURE_DEVOPS_EXT_PAT` in CI.
 
-- `dongle sync` force-downloads the latest index now, ignoring the TTL, and
+- `dongle update` force-downloads the latest index now, ignoring the TTL, and
   prints the index version and the plugins it lists (marking installed ones
   and available upgrades). If the feed can't be reached it exits non-zero
   and keeps whatever's already usable (cache or embedded seed); see
@@ -464,7 +464,7 @@ Dev overrides: `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`,
 and `DONGLE_INDEX_PACKAGE` each override the corresponding value injected at
 build time from `configs/build.yaml`'s `index:` section; a plain `go build
 ./cmd` has no index org/feed baked in at all, so at least `DONGLE_INDEX_ORG`
-and `DONGLE_INDEX_FEED` are required to use `dongle sync` and the index-reading
+and `DONGLE_INDEX_FEED` are required to use `dongle update` and the index-reading
 commands.
 
 ## Before you publish this repo

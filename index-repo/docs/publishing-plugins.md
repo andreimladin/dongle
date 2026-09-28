@@ -12,7 +12,7 @@ branch: the published version is read straight from the branch name (no
 git tags, no auto-increment), and it archives `plugins/` into
 `index.tar.gz` and publishes it to the shared feed as the `dongle-index`
 package. `dongle` downloads and TTL-caches the latest published version
-(`dongle sync` forces an update), then reads a plugin's manifest out of
+(`dongle update` refreshes it on demand), then reads a plugin's manifest out of
 the cached, extracted copy to find its feed coordinates at install time.
 
 There is no JSON Schema for the manifest yet, so this document — plus the

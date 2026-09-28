@@ -19,7 +19,7 @@ import (
 // truth that script bakes these values from). A plain `go build ./cmd`
 // leaves them at these defaults: hostVersion "dev", no index feed identity
 // (DONGLE_INDEX_ORG/DONGLE_INDEX_FEED/DONGLE_INDEX_PACKAGE are then
-// required to use `dongle sync` and the index-reading commands).
+// required to use `dongle update` and the index-reading commands).
 var (
 	hostVersion  = "dev"
 	indexOrg     = ""             // injected at build; env DONGLE_INDEX_ORG overrides
@@ -164,7 +164,7 @@ func init() {
 		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", c.CommandPath())
 		return exitCode(2)
 	})
-	rootCmd.AddCommand(searchCmd, installCmd, removeCmd, upgradeCmd, syncCmd, supportCmd)
+	rootCmd.AddCommand(searchCmd, installCmd, removeCmd, upgradeCmd, updateCmd, supportCmd)
 }
 
 // Execute runs the root command and returns the process exit code.

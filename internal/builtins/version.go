@@ -41,7 +41,7 @@ func Version(hostVersion string) int {
 func indexVersionLabel() (version, note string) {
 	v, ok := index.CachedVersion()
 	if !ok {
-		return "none", "(run `dongle sync`)"
+		return "none", "(run `dongle update`)"
 	}
 	if origin, _ := index.CachedOrigin(); origin == index.OriginEmbedded {
 		return v, "(embedded)"

@@ -52,7 +52,8 @@ one. If there is one, you're asked whether to update the index first; when
 not running in a terminal, the cached index is used and a note says a newer
 one is available. --sync / --no-sync make that choice up front.`
 
-// addSyncFlags registers the --sync/--no-sync pair on cmd.
+// addSyncFlags registers the --sync/--no-sync pair on cmd (whether to run
+// the equivalent of `dongle update` first).
 func addSyncFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("sync", false, "update the plugin index first if a newer one is available (no prompt)")
 	cmd.Flags().Bool("no-sync", false, "use the cached plugin index without checking for a newer one")

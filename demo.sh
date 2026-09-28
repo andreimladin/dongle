@@ -3,7 +3,7 @@
 # (internal/builtins.downloadArtifact) is still a stub — so `dongle
 # install <name>` can't complete end-to-end yet. This demo is trimmed to the
 # parts that work today: build, `dongle --version`, and (if DONGLE_INDEX_ORG or
-# similar is configured) `dongle sync` / `dongle search`.
+# similar is configured) `dongle update` / `dongle search`.
 set -eu
 cd "$(dirname "$0")"
 
@@ -16,8 +16,8 @@ echo "== version =="
 ./dist/dongle --version
 
 if [ -n "${DONGLE_INDEX_ORG:-}" ]; then
-	echo; echo "== sync =="
-	./dist/dongle sync
+	echo; echo "== update =="
+	./dist/dongle update
 
 	echo; echo "== version (with index cached) =="
 	./dist/dongle --version
@@ -25,5 +25,5 @@ if [ -n "${DONGLE_INDEX_ORG:-}" ]; then
 	echo; echo "== search =="
 	./dist/dongle search
 else
-	echo; echo "(DONGLE_INDEX_ORG not set — skipping sync/search)"
+	echo; echo "(DONGLE_INDEX_ORG not set — skipping update/search)"
 fi

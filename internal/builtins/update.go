@@ -26,21 +26,21 @@ const (
 	SyncNever
 )
 
-// Sync downloads the latest index from the feed into the cache, ignoring
+// Update downloads the latest index from the feed into the cache, ignoring
 // the TTL, and prints the index version and the plugins it lists
-// (`dongle sync`). On failure the existing cache stays in use — or, with
+// (`dongle update`). On failure the existing cache stays in use — or, with
 // nothing cached, the embedded seed is extracted — but the command still
 // fails, since its one job didn't happen.
-func Sync() int {
+func Update() int {
 	prev, _ := index.CachedVersion()
-	sp := ui.StartSpinner("Syncing plugin index...")
+	sp := ui.StartSpinner("Updating plugin index...")
 	latest, err := index.FetchLatest()
 	if err == nil {
 		err = latest.Apply()
 	}
 	sp.Stop()
 	if err != nil {
-		ui.Errorf("could not sync the plugin index: %v", err)
+		ui.Errorf("could not update the plugin index: %v", err)
 		if !index.HasCache() {
 			if _, serr := index.SeedEmbedded(); serr != nil {
 				ui.Warnf("could not seed the embedded plugin index: %v", serr)
@@ -126,7 +126,7 @@ func prepareIndex(mode SyncMode) error {
 	default:
 		latest.Discard()
 		ui.Notef("a newer plugin index is available (%s -> %s); using the cached one.", cached, latest.Version)
-		ui.Notef("run `dongle sync`, or pass --sync, to update it first.")
+		ui.Notef("run `dongle update`, or pass --sync, to update it first.")
 		return nil
 	}
 	if !update {

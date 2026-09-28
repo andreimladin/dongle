@@ -1,5 +1,5 @@
 // Package builtins implements dongle's builtin commands — search,
-// install, remove, upgrade, sync, support — plus the --version report and
+// install, remove, upgrade, update, support — plus the --version report and
 // first-run initialization. Each exported function is the whole of one
 // command: it prints its own results/errors and returns the process exit
 // code, so cmd/ stays a thin cobra adapter. The mechanisms underneath
