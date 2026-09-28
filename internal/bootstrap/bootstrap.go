@@ -64,19 +64,6 @@ func loadManifest() (m embeddedManifest, ok bool) {
 	return m, true
 }
 
-// Embedded reports whether this binary was built with -tags embed (it may
-// still have nothing staged; see loadManifest).
-const Embedded = true
-
-// DefaultsBootstrapped reports whether the first-run unpacking has
-// already been recorded (see MarkDefaultsBootstrapped). It only reads
-// state — not the embedded manifest — so it's cheap enough to check on
-// every run before deciding whether the slower PendingDefaults is needed.
-func DefaultsBootstrapped() bool {
-	st, err := state.Load()
-	return err == nil && st.DefaultsBootstrapped
-}
-
 // PendingDefaults returns the default plugins baked into this binary (see
 // configs/build.yaml and scripts/build.sh) that still need unpacking into
 // the plugin store — all of them on first run, none afterwards. It returns

@@ -6,13 +6,6 @@ package bootstrap
 // seed index. See bootstrap.go (compiled only with -tags embed) for the
 // real implementations.
 
-// Embedded reports whether this binary was built with -tags embed.
-const Embedded = false
-
-// DefaultsBootstrapped reports true in plain builds: there's never
-// anything to unpack.
-func DefaultsBootstrapped() bool { return true }
-
 // PendingDefaults reports no embedded defaults in plain builds.
 func PendingDefaults() []Default { return nil }
 
