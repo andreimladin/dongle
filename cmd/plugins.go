@@ -14,13 +14,10 @@ import (
 var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "List plugins available in the index",
-	Long: `List every plugin available in the plugin index, with its latest
-version and description.
-
-Uses the cached index, refreshing it from the feed first if it is older
-than the cache TTL.`,
-	Example: `  dongle search`,
-	Args:    cobra.NoArgs,
+	Long:  "List every plugin in the index with its latest version and description.",
+	Example: `  dongle search
+  dongle install deploy     # then install one`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Search())
 	},
