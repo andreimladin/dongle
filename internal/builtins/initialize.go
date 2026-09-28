@@ -24,12 +24,20 @@ func Initialize() {
 	}
 
 	if seedIndex {
-		seedEmbeddedIndex()
+		sp := ui.StartSpinner("Initializing plugin index...")
+		if _, err := index.SeedEmbedded(); err != nil {
+			sp.Stop()
+			ui.Warnf("could not initialize the embedded plugin index: %v", err)
+		} else {
+			v, _ := index.CachedVersion()
+			sp.Success("Initialized plugin index %s", v)
+		}
 	}
 	for _, d := range defaults {
 		sp := ui.StartSpinner("Installing " + d.Name + "...")
 		if err := bootstrap.InstallDefault(d); err != nil {
-			sp.Warn("installing embedded default %s: %v", d.Name, err)
+			sp.Stop()
+			ui.Warnf("installing embedded default %s: %v", d.Name, err)
 			continue
 		}
 		sp.Success("Installed %s %s", d.Name, d.Version)
@@ -40,22 +48,4 @@ func Initialize() {
 		}
 	}
 	ui.Successf("Initialization complete.")
-}
-
-// seedEmbeddedIndex extracts the index embedded in this binary into the
-// cache under a spinner, reporting a failure as a warning. It reports
-// whether the cache was seeded; false also covers a binary with nothing
-// embedded, in which case it prints nothing.
-func seedEmbeddedIndex() bool {
-	if !index.HasEmbedded() {
-		return false
-	}
-	sp := ui.StartSpinner("Initializing plugin index...")
-	if _, err := index.SeedEmbedded(); err != nil {
-		sp.Warn("could not initialize the embedded plugin index: %v", err)
-		return false
-	}
-	v, _ := index.CachedVersion()
-	sp.Success("Initialized plugin index %s", v)
-	return true
 }

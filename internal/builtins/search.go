@@ -11,32 +11,24 @@ import (
 )
 
 // EnsureFresh is index.EnsureFresh(IndexTTL) for the builtins that only
-// read the index (search, support), with progress shown while any slow
-// step runs: seeding the cache from the embedded index on a first run, or
-// refreshing it from the feed once it's older than the TTL. A failed
-// refresh of a still-usable cache is reported as a warning rather than an
-// error.
+// read the index (search, support): a spinner while the feed is contacted
+// (shown only when it will be), and a failed refresh of a still-usable
+// cache reported as a warning rather than an error.
 func EnsureFresh() error {
-	if !index.HasCache() {
-		return initIndex()
+	var sp *ui.Spinner
+	if index.NeedsRefresh(IndexTTL) {
+		sp = ui.StartSpinner("Refreshing plugin index...")
 	}
-	if !index.NeedsRefresh(IndexTTL) {
-		return nil
-	}
-	sp := ui.StartSpinner("Refreshing plugin index...")
 	err := index.EnsureFresh(IndexTTL)
-	var stale *index.StaleError
-	switch {
-	case errors.As(err, &stale):
-		sp.Warn("%v", stale)
-		return nil
-	case err != nil:
+	if sp != nil {
 		sp.Stop()
-		return err
 	}
-	v, _ := index.CachedVersion()
-	sp.Success("Refreshed plugin index %s", v)
-	return nil
+	var stale *index.StaleError
+	if errors.As(err, &stale) {
+		ui.Warnf("%v", stale)
+		return nil
+	}
+	return err
 }
 
 // Search shows what's available in the catalog (needs the index cache).
