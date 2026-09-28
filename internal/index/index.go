@@ -224,22 +224,6 @@ func HasCache() bool {
 	return err == nil
 }
 
-// EnsureCache makes sure *some* index is cached, without regard to its
-// age: when nothing is cached yet it seeds the cache from the embedded
-// index (offline), falling back to a feed download only when nothing was
-// embedded. Commands that check the feed for a newer index themselves
-// (install/upgrade) use this instead of EnsureFresh, so a stale cache is
-// never silently replaced behind the user's back.
-func EnsureCache() error {
-	if HasCache() {
-		return nil
-	}
-	if seedFromEmbedded() {
-		return nil
-	}
-	return download()
-}
-
 // SeedEmbedded seeds the cache from the index embedded in this binary,
 // replacing whatever is cached, without printing anything (callers may be
 // showing a spinner). ok is false when nothing was embedded (a plain,

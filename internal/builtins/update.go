@@ -38,13 +38,10 @@ func Update() int {
 	if err == nil {
 		err = latest.Apply()
 	}
-	sp.Stop()
 	if err != nil {
-		ui.Errorf("could not update the plugin index: %v", err)
+		sp.Fail("could not update the plugin index: %v", err)
 		if !index.HasCache() {
-			if _, serr := index.SeedEmbedded(); serr != nil {
-				ui.Warnf("could not seed the embedded plugin index: %v", serr)
-			}
+			seedEmbeddedIndex()
 		}
 		if v, ok := index.CachedVersion(); ok {
 			ui.Infof("Still using plugin index %s.", v)
@@ -54,9 +51,9 @@ func Update() int {
 	cur, _ := index.CachedVersion()
 	switch {
 	case prev == "" || prev == cur:
-		ui.Successf("Plugin index %s is the latest.", cur)
+		sp.Success("Plugin index %s is the latest.", cur)
 	default:
-		ui.Successf("Updated plugin index %s %s %s.", prev, ui.Err.Arrow(), cur)
+		sp.Success("Updated plugin index %s %s %s.", prev, ui.Err.Arrow(), cur)
 	}
 	writeIndexSummary(os.Stdout, ui.Out, prev)
 	return 0
@@ -69,22 +66,11 @@ func Update() int {
 // of those happened. Failing to reach the feed is not an error: the
 // cached index is used and a warning says so.
 func prepareIndex(mode SyncMode) error {
-	if !index.HasCache() && !index.HasEmbedded() {
-		// Nothing cached and nothing embedded to seed from: the first
-		// download is the latest by definition, so there's nothing newer
-		// to check for afterwards.
-		sp := ui.StartSpinner("Downloading plugin index...")
-		err := index.EnsureCache()
-		sp.Stop()
-		if err != nil {
-			return err
-		}
-		v, _ := index.CachedVersion()
-		ui.Successf("Downloaded plugin index %s.", v)
-		return nil
-	}
-	if err := index.EnsureCache(); err != nil {
-		return err
+	if !index.HasCache() {
+		// The first index cached is the latest by definition (or, seeded
+		// from the embedded copy, fine until the next check), so there's
+		// nothing newer to check for afterwards.
+		return initIndex()
 	}
 	cached, _ := index.CachedVersion()
 	if mode == SyncNever {
@@ -94,12 +80,13 @@ func prepareIndex(mode SyncMode) error {
 
 	sp := ui.StartSpinner("Checking for a newer plugin index...")
 	latest, err := index.FetchLatest()
-	sp.Stop()
 	if err != nil {
-		ui.Warnf("could not check the feed for a newer plugin index: %v", err)
+		sp.Warn("could not check the feed for a newer plugin index: %v", err)
 		ui.Infof("Using cached plugin index %s.", cached)
 		return nil
 	}
+
+	sp.Stop() // the outcome (and possibly a prompt) follows
 
 	if !index.IsNewer(latest.Version, cached) {
 		if latest.Version == cached {
@@ -135,14 +122,36 @@ func prepareIndex(mode SyncMode) error {
 		return nil
 	}
 
+	sp = ui.StartSpinner("Updating plugin index...")
 	if err := latest.Apply(); err != nil {
-		ui.Warnf("could not update the plugin index: %v", err)
+		sp.Warn("could not update the plugin index: %v", err)
 		ui.Infof("Using cached plugin index %s.", cached)
 		return nil
 	}
-	ui.Successf("Updated plugin index %s %s %s.", cached, ui.Err.Arrow(), latest.Version)
+	sp.Success("Updated plugin index %s %s %s.", cached, ui.Err.Arrow(), latest.Version)
 	writeIndexSummary(os.Stderr, ui.Err, cached)
 	fmt.Fprintln(os.Stderr)
+	return nil
+}
+
+// initIndex caches a first index: the one embedded in this binary if
+// there is one (offline), otherwise the latest from the feed. Each runs
+// under its own spinner.
+func initIndex() error {
+	if seedEmbeddedIndex() {
+		return nil
+	}
+	sp := ui.StartSpinner("Downloading plugin index...")
+	latest, err := index.FetchLatest()
+	if err == nil {
+		err = latest.Apply()
+	}
+	if err != nil {
+		sp.Stop()
+		return err
+	}
+	v, _ := index.CachedVersion()
+	sp.Success("Downloaded plugin index %s.", v)
 	return nil
 }
 

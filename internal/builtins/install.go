@@ -68,11 +68,13 @@ func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersio
 	if err == nil {
 		err = placePlugin(m, downloaded)
 	}
-	sp.Stop()
 	if err != nil {
-		ui.Errorf("%v", err)
+		sp.Fail("%v", err)
 		return 1
 	}
+	// The done line is the command's result, so it goes to stdout rather
+	// than through sp.Success (stderr).
+	sp.Stop()
 
 	if fromVersion != "" {
 		ui.Resultf("Upgraded %s %s %s %s", ui.Out.Bold(m.Name), fromVersion, ui.Out.Arrow(), version)
