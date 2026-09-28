@@ -17,9 +17,23 @@ import (
 // otherwise) so the user knows why the first run takes a moment, without
 // touching the command's stdout.
 func Initialize() {
+	// Fast path for every run after the first: plain builds embed
+	// nothing, and once the bootstrap is recorded and an index is cached
+	// there's nothing left to unpack — decided from state alone, without
+	// reading the embedded manifest.
+	if !bootstrap.Embedded || (bootstrap.DefaultsBootstrapped() && index.HasCache()) {
+		return
+	}
+
+	// Reading the embedded manifest (and the index archive it lists) is
+	// itself slow in a large batteries-included binary, so it runs under
+	// its own spinner rather than leaving the first run silent.
+	sp := ui.StartSpinner("Initializing dongle...")
 	seedIndex := !index.HasCache() && index.HasEmbedded()
 	defaults := bootstrap.PendingDefaults()
+	sp.Stop()
 	if !seedIndex && len(defaults) == 0 {
+		markDefaultsBootstrapped()
 		return
 	}
 
@@ -42,10 +56,18 @@ func Initialize() {
 		}
 		sp.Success("Installed %s %s", d.Name, d.Version)
 	}
-	if len(defaults) > 0 {
-		if err := bootstrap.MarkDefaultsBootstrapped(); err != nil {
-			ui.Warnf("could not record embedded defaults bootstrap: %v", err)
-		}
-	}
+	markDefaultsBootstrapped()
 	ui.Successf("Initialization complete.")
+}
+
+// markDefaultsBootstrapped records the first-run bootstrap as done — even
+// when this binary embeds no defaults — so later runs take Initialize's
+// fast path.
+func markDefaultsBootstrapped() {
+	if bootstrap.DefaultsBootstrapped() {
+		return
+	}
+	if err := bootstrap.MarkDefaultsBootstrapped(); err != nil {
+		ui.Warnf("could not record embedded defaults bootstrap: %v", err)
+	}
 }
