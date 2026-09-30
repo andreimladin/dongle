@@ -18,7 +18,9 @@ import (
 // touching the command's stdout.
 func Initialize() {
 	seedIndex := !index.HasCache() && index.HasEmbedded()
+	sp := ui.StartSpinner("Initializing dongle...")
 	defaults := bootstrap.PendingDefaults()
+	sp.Stop()
 	if !seedIndex && len(defaults) == 0 {
 		return
 	}

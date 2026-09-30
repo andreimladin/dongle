@@ -14,13 +14,10 @@ import (
 var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "List plugins available in the index",
-	Long: `List every plugin available in the plugin index, with its latest
-version and description.
-
-Uses the cached index, refreshing it from the feed first if it is older
-than the cache TTL.`,
-	Example: `  dongle search`,
-	Args:    cobra.NoArgs,
+	Long:  "List every plugin in the index with its latest version and description.",
+	Example: `  dongle search
+  dongle install deploy     # then install one`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Search())
 	},
@@ -29,28 +26,14 @@ than the cache TTL.`,
 var installCmd = &cobra.Command{
 	Use:   "install <name>",
 	Short: "Install a plugin from the index",
-	Long: `Install a plugin from the plugin index.
-
-The plugin's manifest is resolved from the index, checked for
-compatibility with this dongle, and its binary for this OS/architecture is
-downloaded from the feed. Once installed, run it as ` + "`dongle <name>`" + `.
-` + indexCheckHelp,
+	Long:  "Install a plugin and make it available as a dongle command.",
 	Example: `  dongle install deploy
-  dongle install deploy --sync      # refresh the index first, no prompt
-  dongle install deploy --no-sync   # use the cached index as-is`,
+  dongle deploy               # then run it`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Install(hostVersion, protocol, args[0], syncMode(cmd)))
 	},
 }
-
-// indexCheckHelp is the shared --help paragraph for the commands that
-// check the feed for a newer index before acting.
-const indexCheckHelp = `
-Before acting, the feed is checked for a newer plugin index than the cached
-one. If there is one, you're asked whether to update the index first; when
-not running in a terminal, the cached index is used and a note says a newer
-one is available. --sync / --no-sync make that choice up front.`
 
 // addSyncFlags registers the --sync/--no-sync pair on cmd (whether to run
 // the equivalent of `dongle update` first).
@@ -90,16 +73,10 @@ disk and drops it from local state.`,
 
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade [name]",
-	Short: "Upgrade installed plugins to the index's versions",
-	Long: `Upgrade installed plugins to the versions declared in the plugin index.
-
-With no argument, every installed plugin is upgraded; with a name, only
-that plugin. Only installed plugins are touched, and a plugin whose
-installed version is newer than the index's is never downgraded.
-` + indexCheckHelp,
+	Short: "Upgrade installed plugins",
+	Long:  "Upgrade one plugin, or all installed plugins when no name is given.",
 	Example: `  dongle upgrade            # upgrade everything installed
-  dongle upgrade deploy     # upgrade just one plugin
-  dongle upgrade --sync     # refresh the index first, no prompt`,
+  dongle upgrade deploy     # upgrade just one plugin`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := ""
