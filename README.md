@@ -445,15 +445,22 @@ Artifacts feed by the separate index repo's own pipeline (see
 `index-repo/azure-pipelines-publish-index.yml`) on every merge to its
 `main`. `dongle` downloads the **latest** version via `az artifacts
 universal download --version "*"`, extracts it, and caches it locally
-(1h TTL — see `internal/builtins.IndexTTL`), same as
+(1h TTL — see `internal/builtins.IndexTTL`). Freshness checks (the TTL
+refresh, `dongle update`, and the check `install`/`upgrade` run first) are
+cheap: they ask the feed only for the latest index *version* (`az devops
+invoke` against the Azure Artifacts packages API — metadata, no download)
+and download the archive only when that version is newer than the cached
+one — and, for `install`/`upgrade`, only once the user confirms (or passes
+`--sync`), same as
 `internal/builtins.downloadArtifact` does for plugin binaries. `dongle`
 does not manage credentials itself — it shells out to `az`, which
 authenticates however you're already logged in (`az login`), or via
 `AZURE_DEVOPS_EXT_PAT` in CI.
 
-- `dongle update` force-downloads the latest index now, ignoring the TTL, and
-  prints the index version and the plugins it lists (marking installed ones
-  and available upgrades). If the feed can't be reached it exits non-zero
+- `dongle update` checks the feed for the latest index version now, ignoring
+  the TTL, downloads the index only if that version is newer than the cached
+  one, and prints the index version and the plugins it lists (marking
+  installed ones and available upgrades). If the feed can't be reached it exits non-zero
   and keeps whatever's already usable (cache or embedded seed); see
   "Embedded plugin index" above.
 - `dongle --version` prints both the CLI's own version and the version of the

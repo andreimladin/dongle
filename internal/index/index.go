@@ -24,6 +24,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -168,7 +169,9 @@ type Selector struct {
 //     scripts/build.sh's fetch_embedded) — offline, no feed call — falling
 //     back to a feed download only when nothing was embedded (a plain,
 //     non -tags-embed build);
-//   - a stale cache triggers a feed download to replace it; on failure the
+//   - a stale cache triggers a feed check: the latest index version is
+//     queried (metadata only) and the archive is downloaded to replace the
+//     cache only when that version is newer; on failure the
 //     existing cache is kept (a command running on slightly old data beats
 //     one that can't run at all), so being offline never blocks commands
 //     that can run on a slightly stale catalog. That case returns a
@@ -182,7 +185,7 @@ func EnsureFresh(ttl time.Duration) error {
 	}
 	age, err := cacheAge()
 	if err != nil || age > ttl {
-		if err := download(); err != nil {
+		if err := refresh(); err != nil {
 			return &StaleError{Err: err}
 		}
 	}
@@ -342,33 +345,141 @@ func writeOrigin(origin string) error {
 }
 
 // download fetches the latest version of the index package from the feed
-// and swaps it in as the new cache.
+// and swaps it in as the new cache. Used only when nothing is cached (so
+// there's no version to compare against first).
 func download() error {
-	latest, err := FetchLatest()
+	latest, err := Fetch("*")
 	if err != nil {
 		return err
 	}
 	return latest.Apply()
 }
 
-// Latest is the latest index package downloaded from the feed and
-// extracted into a staging dir, but not yet installed as the cache — so a
-// caller can compare its version against the cached one and decide
-// whether to Apply it or Discard it.
+// refresh brings a stale cache up to date: it asks the feed for the latest
+// index version (a metadata query, no download) and fetches the archive
+// only when that version is newer than the cached one; otherwise it just
+// restarts the cache's TTL.
+func refresh() error {
+	cached, _ := CachedVersion()
+	v, err := LatestVersion()
+	if err != nil {
+		return err
+	}
+	if !IsNewer(v, cached) {
+		return MarkChecked()
+	}
+	latest, err := Fetch(v)
+	if err != nil {
+		return err
+	}
+	return latest.Apply()
+}
+
+// LatestVersion asks the feed for the latest published version of the
+// index package. It is a metadata query only — no archive bytes are
+// downloaded — so it's the cheap first half of a freshness check; Fetch
+// is the expensive second half, run only when the answer is newer than
+// the cached version (and, for install/upgrade, the user agrees).
+//
+// It goes through `az devops invoke` (the azure-devops extension's REST
+// passthrough) rather than `az rest`, because the extension authenticates
+// the same way `az artifacts` does — `az login` or AZURE_DEVOPS_EXT_PAT —
+// while `az rest` ignores the PAT (see tools/validate-manifest/existence.go).
+// The call is the Azure Artifacts "Get Packages" API filtered to this
+// package name, which returns only each package's latest version.
+// TODO: verify the Packaging/Packages area+resource names and api-version
+// against the az CLI / azure-devops extension version you deploy with.
+func LatestVersion() (string, error) {
+	if _, err := exec.LookPath("az"); err != nil {
+		return "", errAzMissing
+	}
+	route := []string{"feedId=" + indexFeed()}
+	if indexProject() != "" {
+		route = append(route, "project="+indexProject())
+	}
+	args := []string{
+		"devops", "invoke",
+		"--organization", "https://dev.azure.com/" + indexOrg(),
+		"--area", "Packaging",
+		"--resource", "Packages",
+		"--api-version", "7.1",
+		"--http-method", "GET",
+		"--route-parameters"}
+	args = append(args, route...)
+	args = append(args,
+		"--query-parameters",
+		"protocolType=UPack",
+		"packageNameQuery="+indexPackage(),
+		"includeAllVersions=false",
+		"--output", "json",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("az", args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", AzError("az query latest "+indexPackage()+" version", err, stderr.Bytes())
+	}
+	return parseLatestVersion(stdout.Bytes(), indexPackage())
+}
+
+// parseLatestVersion picks pkg's latest version out of a "Get Packages"
+// response. packageNameQuery is a substring match, so the package is
+// matched by exact (case-insensitive) name; among its versions the one the
+// feed flags isLatest wins, falling back to the highest by IsNewer.
+func parseLatestVersion(body []byte, pkg string) (string, error) {
+	var resp struct {
+		Value []struct {
+			Name     string `json:"name"`
+			Versions []struct {
+				Version  string `json:"version"`
+				IsLatest bool   `json:"isLatest"`
+			} `json:"versions"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse feed response for %s: %w", pkg, err)
+	}
+	for _, p := range resp.Value {
+		if !strings.EqualFold(p.Name, pkg) {
+			continue
+		}
+		best := ""
+		for _, v := range p.Versions {
+			if v.IsLatest {
+				return v.Version, nil
+			}
+			if IsNewer(v.Version, best) {
+				best = v.Version
+			}
+		}
+		if best != "" {
+			return best, nil
+		}
+	}
+	return "", fmt.Errorf("package %s has no published versions in feed %s", pkg, indexFeed())
+}
+
+var errAzMissing = errors.New("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+
+// Latest is an index package downloaded from the feed and extracted into
+// a staging dir, but not yet installed as the cache — so a caller can
+// decide whether to Apply it or Discard it.
 type Latest struct {
-	Version string // from the archive's VERSION file; empty if it had none
+	Version string // from the archive's VERSION file, else the version requested
 
 	staging    string
 	extractDir string
 }
 
-// FetchLatest downloads the latest version of the index package from the
-// feed and extracts it into a staging dir under the data dir (same
-// filesystem, so Apply's swap is a rename). The caller must Apply or
-// Discard the result.
-func FetchLatest() (*Latest, error) {
+// Fetch downloads the given version of the index package from the feed
+// ("*" for the latest — prefer passing the exact version LatestVersion
+// returned, so what's downloaded is what was compared) and extracts it
+// into a staging dir under the data dir (same filesystem, so Apply's swap
+// is a rename). The caller must Apply or Discard the result.
+func Fetch(version string) (*Latest, error) {
 	if _, err := exec.LookPath("az"); err != nil {
-		return nil, fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+		return nil, errAzMissing
 	}
 	stagingRoot := filepath.Join(state.DataDir(), ".staging")
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
@@ -380,7 +491,7 @@ func FetchLatest() (*Latest, error) {
 	}
 	l := &Latest{staging: staging, extractDir: filepath.Join(staging, "extracted")}
 
-	archivePath, err := downloadArchive(filepath.Join(staging, "download"))
+	archivePath, err := downloadArchive(filepath.Join(staging, "download"), version)
 	if err != nil {
 		l.Discard()
 		return nil, err
@@ -391,6 +502,9 @@ func FetchLatest() (*Latest, error) {
 	}
 	if b, err := os.ReadFile(filepath.Join(l.extractDir, "VERSION")); err == nil {
 		l.Version = strings.TrimSpace(string(b))
+	}
+	if l.Version == "" && version != "*" {
+		l.Version = version
 	}
 	return l, nil
 }
@@ -451,12 +565,13 @@ func IsNewer(a, b string) bool {
 	return len(ap) > len(bp)
 }
 
-// downloadArchive shells out to the Azure CLI to pull the latest version
-// of the index Universal Package into destDir, returning the path to the
+// downloadArchive shells out to the Azure CLI to pull the given version
+// ("*" for the latest) of the index Universal Package into destDir,
+// returning the path to the
 // single downloaded file (expected to be index.tar.gz, but the package's
 // contents aren't assumed to be named predictably — the same defensiveness
 // internal/builtins.downloadArtifact uses).
-func downloadArchive(destDir string) (string, error) {
+func downloadArchive(destDir, version string) (string, error) {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
 	}
@@ -467,11 +582,10 @@ func downloadArchive(destDir string) (string, error) {
 		"--name", indexPackage(),
 		// "*" resolves to the latest published version — a feature specific
 		// to Universal Packages (unlike other Azure Artifacts package
-		// types). TODO: verify this exact flag behavior against the az CLI
-		// / azure-devops extension version you deploy with; if it ever
-		// changes, resolve the latest version explicitly (e.g. via the
-		// Azure Artifacts feed API) before calling download with it.
-		"--version", "*",
+		// types). Freshness checks resolve the version first via
+		// LatestVersion and pass it explicitly; only a first download with
+		// nothing cached uses "*".
+		"--version", version,
 		"--path", destDir,
 	}
 	if indexProject() != "" {
@@ -483,7 +597,7 @@ func downloadArchive(destDir string) (string, error) {
 	cmd := exec.Command("az", args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", AzError("az download "+indexPackage(), err, stderr.Bytes())
+		return "", AzError("az download "+indexPackage()+"@"+version, err, stderr.Bytes())
 	}
 
 	entries, err := os.ReadDir(destDir)
