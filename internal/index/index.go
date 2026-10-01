@@ -1,11 +1,14 @@
 // Package index manages the plugin catalog: a versioned "dongle-index"
 // Universal Package (a tar+gzip archive of plugins/*.yaml manifests)
-// downloaded from Azure Artifacts, extracted, and refreshed on a TTL,
-// mapping plugin name -> version -> Azure feed artifact.
+// downloaded from Azure Artifacts and extracted, mapping plugin name ->
+// version -> Azure feed artifact. The cache is never replaced behind the
+// user's back: commands check the feed for a newer index *version*
+// (LatestVersion, metadata only) and download the archive (Fetch) only
+// once the user agrees, or when they run `dongle update`.
 //
 // A binary built with -tags embed also carries a seed copy of that same
 // archive baked in at build time (see internal/bootstrap.EmbeddedIndex and
-// scripts/build.sh's fetch_embedded). EnsureFresh extracts that seed into
+// scripts/build.sh's fetch_embedded). EnsureCache extracts that seed into
 // the cache on a first run with nothing cached yet, so a released dongle
 // has a working index from its very first run, fully offline; a plain
 // `go build ./cmd` embeds nothing, so that path falls back to a feed
@@ -24,6 +27,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -159,58 +163,6 @@ type Selector struct {
 
 // --- refresh lifecycle --------------------------------------------------------
 
-// EnsureFresh makes sure a usable index is cached locally before a command
-// reads it, following this precedence:
-//
-//   - a fresh cache (within ttl) is used as-is, no feed call;
-//   - no cache at all seeds one from the index archive embedded into this
-//     binary at build time (see internal/bootstrap.EmbeddedIndex and
-//     scripts/build.sh's fetch_embedded) — offline, no feed call — falling
-//     back to a feed download only when nothing was embedded (a plain,
-//     non -tags-embed build);
-//   - a stale cache triggers a feed download to replace it; on failure the
-//     existing cache is kept (a command running on slightly old data beats
-//     one that can't run at all), so being offline never blocks commands
-//     that can run on a slightly stale catalog. That case returns a
-//     *StaleError, which callers report as a warning, not a failure.
-func EnsureFresh(ttl time.Duration) error {
-	if _, err := os.Stat(cacheDir()); os.IsNotExist(err) {
-		if seedFromEmbedded() {
-			return nil
-		}
-		return download()
-	}
-	age, err := cacheAge()
-	if err != nil || age > ttl {
-		if err := download(); err != nil {
-			return &StaleError{Err: err}
-		}
-	}
-	return nil
-}
-
-// StaleError is EnsureFresh's "refresh failed, but the (stale) cached
-// index is still usable" result: a warning for the caller to show, not a
-// reason to stop.
-type StaleError struct{ Err error }
-
-func (e *StaleError) Error() string {
-	return fmt.Sprintf("could not refresh the plugin index (%v); using the cached copy", e.Err)
-}
-
-func (e *StaleError) Unwrap() error { return e.Err }
-
-// NeedsRefresh reports whether EnsureFresh(ttl) would contact the feed —
-// no cache and nothing embedded to seed it from, or a cache older than
-// ttl — so callers can show progress only when there will be some.
-func NeedsRefresh(ttl time.Duration) bool {
-	if !HasCache() {
-		return !HasEmbedded()
-	}
-	age, err := cacheAge()
-	return err != nil || age > ttl
-}
-
 // HasEmbedded reports whether this binary carries a seed index (built with
 // -tags embed and a staged index archive).
 func HasEmbedded() bool {
@@ -227,9 +179,8 @@ func HasCache() bool {
 // EnsureCache makes sure *some* index is cached, without regard to its
 // age: when nothing is cached yet it seeds the cache from the embedded
 // index (offline), falling back to a feed download only when nothing was
-// embedded. Commands that check the feed for a newer index themselves
-// (install/upgrade) use this instead of EnsureFresh, so a stale cache is
-// never silently replaced behind the user's back.
+// embedded. Commands then check the feed for a newer index themselves
+// (see LatestVersion), so the cache is never silently replaced.
 func EnsureCache() error {
 	if HasCache() {
 		return nil
@@ -342,33 +293,121 @@ func writeOrigin(origin string) error {
 }
 
 // download fetches the latest version of the index package from the feed
-// and swaps it in as the new cache.
+// and swaps it in as the new cache. Used only when nothing is cached (so
+// there's no version to compare against first).
 func download() error {
-	latest, err := FetchLatest()
+	latest, err := Fetch("*")
 	if err != nil {
 		return err
 	}
 	return latest.Apply()
 }
 
-// Latest is the latest index package downloaded from the feed and
-// extracted into a staging dir, but not yet installed as the cache — so a
-// caller can compare its version against the cached one and decide
-// whether to Apply it or Discard it.
+// LatestVersion asks the feed for the latest published version of the
+// index package. It is a metadata query only — no archive bytes are
+// downloaded — so it's the cheap first half of a freshness check; Fetch
+// is the expensive second half, run only when the answer is newer than
+// the cached version and the user agrees (or runs `dongle update`).
+//
+// It goes through `az devops invoke` (the azure-devops extension's REST
+// passthrough) rather than `az rest`, because the extension authenticates
+// the same way `az artifacts` does — `az login` or AZURE_DEVOPS_EXT_PAT —
+// while `az rest` ignores the PAT (see tools/validate-manifest/existence.go).
+// The call is the Azure Artifacts "Get Packages" API filtered to this
+// package name, which returns only each package's latest version.
+// TODO: verify the Packaging/Packages area+resource names and api-version
+// against the az CLI / azure-devops extension version you deploy with.
+func LatestVersion() (string, error) {
+	if _, err := exec.LookPath("az"); err != nil {
+		return "", errAzMissing
+	}
+	route := []string{"feedId=" + indexFeed()}
+	if indexProject() != "" {
+		route = append(route, "project="+indexProject())
+	}
+	args := []string{
+		"devops", "invoke",
+		"--organization", "https://dev.azure.com/" + indexOrg(),
+		"--area", "Packaging",
+		"--resource", "Packages",
+		"--api-version", "7.1",
+		"--http-method", "GET",
+		"--route-parameters"}
+	args = append(args, route...)
+	args = append(args,
+		"--query-parameters",
+		"protocolType=UPack",
+		"packageNameQuery="+indexPackage(),
+		"includeAllVersions=false",
+		"--output", "json",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("az", args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", AzError("az query latest "+indexPackage()+" version", err, stderr.Bytes())
+	}
+	return parseLatestVersion(stdout.Bytes(), indexPackage())
+}
+
+// parseLatestVersion picks pkg's latest version out of a "Get Packages"
+// response. packageNameQuery is a substring match, so the package is
+// matched by exact (case-insensitive) name; among its versions the one the
+// feed flags isLatest wins, falling back to the highest by IsNewer.
+func parseLatestVersion(body []byte, pkg string) (string, error) {
+	var resp struct {
+		Value []struct {
+			Name     string `json:"name"`
+			Versions []struct {
+				Version  string `json:"version"`
+				IsLatest bool   `json:"isLatest"`
+			} `json:"versions"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse feed response for %s: %w", pkg, err)
+	}
+	for _, p := range resp.Value {
+		if !strings.EqualFold(p.Name, pkg) {
+			continue
+		}
+		best := ""
+		for _, v := range p.Versions {
+			if v.IsLatest {
+				return v.Version, nil
+			}
+			if IsNewer(v.Version, best) {
+				best = v.Version
+			}
+		}
+		if best != "" {
+			return best, nil
+		}
+	}
+	return "", fmt.Errorf("package %s has no published versions in feed %s", pkg, indexFeed())
+}
+
+var errAzMissing = errors.New("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+
+// Latest is an index package downloaded from the feed and extracted into
+// a staging dir, but not yet installed as the cache — so a caller can
+// decide whether to Apply it or Discard it.
 type Latest struct {
-	Version string // from the archive's VERSION file; empty if it had none
+	Version string // from the archive's VERSION file, else the version requested
 
 	staging    string
 	extractDir string
 }
 
-// FetchLatest downloads the latest version of the index package from the
-// feed and extracts it into a staging dir under the data dir (same
-// filesystem, so Apply's swap is a rename). The caller must Apply or
-// Discard the result.
-func FetchLatest() (*Latest, error) {
+// Fetch downloads the given version of the index package from the feed
+// ("*" for the latest — prefer passing the exact version LatestVersion
+// returned, so what's downloaded is what was compared) and extracts it
+// into a staging dir under the data dir (same filesystem, so Apply's swap
+// is a rename). The caller must Apply or Discard the result.
+func Fetch(version string) (*Latest, error) {
 	if _, err := exec.LookPath("az"); err != nil {
-		return nil, fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
+		return nil, errAzMissing
 	}
 	stagingRoot := filepath.Join(state.DataDir(), ".staging")
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
@@ -380,7 +419,7 @@ func FetchLatest() (*Latest, error) {
 	}
 	l := &Latest{staging: staging, extractDir: filepath.Join(staging, "extracted")}
 
-	archivePath, err := downloadArchive(filepath.Join(staging, "download"))
+	archivePath, err := downloadArchive(filepath.Join(staging, "download"), version)
 	if err != nil {
 		l.Discard()
 		return nil, err
@@ -391,6 +430,9 @@ func FetchLatest() (*Latest, error) {
 	}
 	if b, err := os.ReadFile(filepath.Join(l.extractDir, "VERSION")); err == nil {
 		l.Version = strings.TrimSpace(string(b))
+	}
+	if l.Version == "" && version != "*" {
+		l.Version = version
 	}
 	return l, nil
 }
@@ -421,8 +463,8 @@ func (l *Latest) Apply() error {
 // Safe to call more than once.
 func (l *Latest) Discard() { os.RemoveAll(l.staging) }
 
-// MarkChecked records that the cached index was just confirmed current
-// against the feed, restarting its TTL without re-downloading it.
+// MarkChecked records (in index.meta) when the cached index was last
+// confirmed current against the feed, without re-downloading it.
 func MarkChecked() error { return touchMeta() }
 
 // IsNewer reports whether index version a is newer than b. Index versions
@@ -451,12 +493,13 @@ func IsNewer(a, b string) bool {
 	return len(ap) > len(bp)
 }
 
-// downloadArchive shells out to the Azure CLI to pull the latest version
-// of the index Universal Package into destDir, returning the path to the
+// downloadArchive shells out to the Azure CLI to pull the given version
+// ("*" for the latest) of the index Universal Package into destDir,
+// returning the path to the
 // single downloaded file (expected to be index.tar.gz, but the package's
 // contents aren't assumed to be named predictably — the same defensiveness
 // internal/builtins.downloadArtifact uses).
-func downloadArchive(destDir string) (string, error) {
+func downloadArchive(destDir, version string) (string, error) {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
 	}
@@ -467,11 +510,10 @@ func downloadArchive(destDir string) (string, error) {
 		"--name", indexPackage(),
 		// "*" resolves to the latest published version — a feature specific
 		// to Universal Packages (unlike other Azure Artifacts package
-		// types). TODO: verify this exact flag behavior against the az CLI
-		// / azure-devops extension version you deploy with; if it ever
-		// changes, resolve the latest version explicitly (e.g. via the
-		// Azure Artifacts feed API) before calling download with it.
-		"--version", "*",
+		// types). Freshness checks resolve the version first via
+		// LatestVersion and pass it explicitly; only a first download with
+		// nothing cached uses "*".
+		"--version", version,
 		"--path", destDir,
 	}
 	if indexProject() != "" {
@@ -483,7 +525,7 @@ func downloadArchive(destDir string) (string, error) {
 	cmd := exec.Command("az", args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", AzError("az download "+indexPackage(), err, stderr.Bytes())
+		return "", AzError("az download "+indexPackage()+"@"+version, err, stderr.Bytes())
 	}
 
 	entries, err := os.ReadDir(destDir)
@@ -585,14 +627,6 @@ func extractTarGzReader(r io.Reader, destDir string) error {
 	return nil
 }
 
-func cacheAge() (time.Duration, error) {
-	fi, err := os.Stat(metaPath())
-	if err != nil {
-		return 0, err
-	}
-	return time.Since(fi.ModTime()), nil
-}
-
 func touchMeta() error {
 	now := time.Now()
 	if err := os.WriteFile(metaPath(), []byte(now.Format(time.RFC3339)), 0o644); err != nil {
@@ -621,7 +655,7 @@ func Load(name string) (*Manifest, error) {
 }
 
 // LoadFile reads and parses a manifest from an explicit file path, bypassing
-// the cache (cacheDir/EnsureFresh/Refresh) entirely. Purely additive next to
+// the cache (cacheDir/EnsureCache/Fetch) entirely. Purely additive next to
 // Load: used by build-time tools (tools/resolve-plugin) that need to read
 // plugins/<name>.yaml out of an arbitrary extracted index archive — e.g. one
 // just downloaded fresh into a temp dir — without touching the managed cache.
