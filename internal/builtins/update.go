@@ -12,7 +12,7 @@ import (
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
-// SyncMode is what install/upgrade do when the feed has a newer index than
+// SyncMode is what search/install/upgrade do when the feed has a newer index than
 // the one cached (see prepareIndex).
 type SyncMode int
 
@@ -91,7 +91,7 @@ func fetchAndApply(v string) error {
 	return latest.Apply()
 }
 
-// prepareIndex runs before install/upgrade act: it makes sure an index is
+// prepareIndex runs before search/install/upgrade act: it makes sure an index is
 // cached, then asks the feed for its latest index version — a metadata
 // query, no download — and compares it to the cached one. Only when the
 // feed's is newer and, per mode (and whether the user can be prompted),
@@ -99,7 +99,9 @@ func fetchAndApply(v string) error {
 // otherwise nothing is downloaded and the cached copy is used. It always
 // tells the user (on stderr) which of those happened. Failing to reach the
 // feed is not an error: the cached index is used and a warning says so.
-func prepareIndex(mode SyncMode) error {
+// summary prints the updated index's plugin list after an update (search
+// skips it, since listing the plugins is its own output).
+func prepareIndex(mode SyncMode, summary bool) error {
 	if !index.HasCache() && !index.HasEmbedded() {
 		// Nothing cached and nothing embedded to seed from: the first
 		// download is the latest by definition, so there's nothing newer
@@ -165,8 +167,10 @@ func prepareIndex(mode SyncMode) error {
 	}
 	cur, _ := index.CachedVersion()
 	ui.Successf("Updated plugin index %s %s %s.", cached, ui.Err.Arrow(), cur)
-	writeIndexSummary(os.Stderr, ui.Err, cached)
-	fmt.Fprintln(os.Stderr)
+	if summary {
+		writeIndexSummary(os.Stderr, ui.Err, cached)
+		fmt.Fprintln(os.Stderr)
+	}
 	return nil
 }
 

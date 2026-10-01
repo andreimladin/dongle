@@ -7,8 +7,9 @@ import (
 )
 
 // updateCmd replaces the old `dongle refresh` (and before it `dongle index
-// refresh`): checks the feed for the latest index version, ignoring the
-// TTL cache, and downloads the index only when that version is newer.
+// refresh`): checks the feed for the latest index version and downloads
+// the index only when that version is newer — no prompt, since asking for
+// it is the confirmation.
 var updateCmd = &cobra.Command{
 	Use:     "update",
 	Short:   "Refresh the plugin index from the feed",

@@ -19,7 +19,7 @@ var searchCmd = &cobra.Command{
   dongle install deploy     # then install one`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return exitCode(builtins.Search())
+		return exitCode(builtins.Search(syncMode(cmd)))
 	},
 }
 
@@ -55,6 +55,7 @@ func syncMode(cmd *cobra.Command) builtins.SyncMode {
 }
 
 func init() {
+	addSyncFlags(searchCmd)
 	addSyncFlags(installCmd)
 	addSyncFlags(upgradeCmd)
 }
