@@ -12,8 +12,7 @@
 # Two ways this runs:
 #   - On every PR to main: validates only the plugins/*.yaml files that
 #     changed in the PR (fast), and flags brand-new plugin files so
-#     reviewers apply the new-plugin onboarding review (see CONTRIBUTING.md
-#     / docs/publishing-plugins.md).
+#     reviewers apply the new-plugin onboarding review (see CONTRIBUTING.md).
 #   - On a nightly schedule (or a manual queue, always available regardless
 #     of trigger config): a full scan of every plugins/*.yaml, to catch
 #     drift in manifests nobody touched — e.g. a package referenced by an
@@ -134,7 +133,7 @@ steps:
         fi
 
         for f in "${added[@]}"; do
-          msg="NEW PLUGIN MANIFEST: $f — new plugins need central/platform-team review in addition to any per-plugin owner (see CODEOWNERS and docs/publishing-plugins.md)."
+          msg="NEW PLUGIN MANIFEST: $f — new plugins need central/platform-team review in addition to any per-plugin owner (see CODEOWNERS and CONTRIBUTING.md)."
           echo "##vso[task.logissue type=warning]$msg"
 
           # Best-effort PR comment in addition to the log warning above —
