@@ -422,7 +422,7 @@ independently.
 3. PR `plugins/<name>.yaml` to the (separate) index repo (version + feed
    coords + each platform's `selector` and the Universal Package `name` you
    published it under as `package`). See `examples/index/plugins/deploy.yaml`
-   and `index-repo/docs/publishing-plugins.md`. Once merged to that repo's
+   and `index-repo/CONTRIBUTING.md`. Once merged to that repo's
    `main`, its own publish pipeline (`index-repo/azure-pipelines-publish-index.yml`)
    tags the commit with the next monotonic version and republishes the whole
    `plugins/` directory as the `dongle-index` package — see "Index access"

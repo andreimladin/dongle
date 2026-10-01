@@ -5,7 +5,7 @@ bump, platform addition, or a feed coordinate change? -->
 
 ## Checklist
 
-- [ ] `validate-manifest` run locally against the changed manifest(s) and passed (see `docs/publishing-plugins.md` — "Validating locally")
+- [ ] `validate-manifest` run locally against the changed manifest(s) and passed (see `CONTRIBUTING.md` — "Running the validator locally")
 - [ ] Package(s) for every platform listed in the manifest published to the feed named in `feed:`, at the version in `version:`
 - [ ] `version:` bumped in `plugins/<name>.yaml` and matches what was actually published
 - [ ] `name:` matches the filename (`plugins/<name>.yaml` → `name: <name>`)
