@@ -244,29 +244,29 @@ something newer.
 `internal/bootstrap/embedded/index.tar.gz` and its version (from
 `manifest.json`'s `"index"` field) to `internal/index`, mirroring
 the default plugins' embedding pattern — same `//go:embed all:embedded`
-filesystem, just a different file read out of it. `internal/index.EnsureFresh`
-follows this precedence whenever a read-only command (`search`, `support`)
-needs the catalog:
+filesystem, just a different file read out of it. `internal/index.EnsureCache`
+makes sure *some* index is cached before a command reads it:
 
-1. **Fresh cache** (within the 1h TTL) — used as-is, no feed call.
+1. **Any cache** — used as-is; it is never replaced without asking.
 2. **No cache at all** — extracted straight from the embedded seed into the
    cache, entirely offline, no feed call. A plain `go build ./cmd` (no
    `-tags embed`) has nothing embedded, so this falls back to a feed
    download instead, same as before this feature.
-3. **`dongle update`, or a stale cache** — downloads the latest index from
-   the feed and replaces the cache on success. On failure it falls back to
-   whatever is already usable — the existing cache, or (only if there's no
-   cache yet) the embedded seed — so the CLI always ends up with *some*
-   usable index rather than none at all.
+3. **`dongle update`** — checks the feed's latest index version and
+   downloads it if newer, replacing the cache on success. On failure it
+   falls back to whatever is already usable — the existing cache, or (only
+   if there's no cache yet) the embedded seed — so the CLI always ends up
+   with *some* usable index rather than none at all.
 
-`install` and `upgrade` don't rely on the TTL: before acting they always
-check the feed for a **newer index version** than the cached one:
+`search`, `install` and `upgrade` then check the feed for a **newer index
+version** than the cached one. The check is a metadata query only — the
+index archive is downloaded only after you agree:
 
 - **Newer index, interactive** (stdin is a terminal): you're asked
   `A newer plugin index is available (<old> -> <new>). Update the index
-  first? [y/N]`. Yes updates the cache (printing the new index and its
-  plugins, as `dongle update` does) and then installs/upgrades against it; no
-  uses the cached index.
+  first? [y/N]`. Yes downloads the new index into the cache (install/upgrade
+  also print its plugins, as `dongle update` does) and then runs against it;
+  no uses the cached index and downloads nothing.
 - **Newer index, non-interactive** (piped/CI): never prompts or hangs —
   the cached index is used and a note says a newer one is available.
   `--sync` (update first) and `--no-sync` (use the cache, don't even check)
@@ -310,7 +310,7 @@ Real and testable now:
 - **Compatibility gates** (`requires.host` range + `requires.protocol` exact) at
   both install time and dispatch time, from the shared `internal/compat`.
 - **Feed-archive index**: `dongle update`, `dongle --version` (shows the
-  cached index version), 1h TTL cache, offline-tolerant refresh, `dongle
+  cached index version), version check before any download, offline-tolerant refresh, `dongle
   search`, and install-by-name resolution up to the download.
 
 Stubbed (the seam is in place):
@@ -363,7 +363,7 @@ internal/builtins/     the builtin commands, one file each: search.go
 internal/ui/           TTY-aware output: aligned tables, color, status
                         lines, spinner, y/N prompt
 internal/index/        feed-archive catalog: downloads + extracts the
-                        versioned dongle-index package, TTL cache, lookups,
+                        versioned dongle-index package, version check, lookups,
                         embedded-seed fallback for offline first run
 tools/resolve-plugin/   build-time-only helper: manifest -> feed coordinates
                         + version for one plugin/platform (not a dongle
@@ -443,17 +443,22 @@ clones: a `dongle-index` Universal Package (`index.tar.gz`, containing
 `plugins/*.yaml` plus a `VERSION` file) published to the shared Azure
 Artifacts feed by the separate index repo's own pipeline (see
 `index-repo/azure-pipelines-publish-index.yml`) on every merge to its
-`main`. `dongle` downloads the **latest** version via `az artifacts
-universal download --version "*"`, extracts it, and caches it locally
-(1h TTL — see `internal/builtins.IndexTTL`), same as
-`internal/builtins.downloadArtifact` does for plugin binaries. `dongle`
+`main`. `dongle` downloads it via `az artifacts universal download`,
+extracts it, and caches it locally, same as
+`internal/builtins.downloadArtifact` does for plugin binaries. Checking for
+a newer index (`search`, `install`, `upgrade`, `dongle update`) is cheap:
+it asks the feed only for the latest index *version* (`az devops invoke`
+against the Azure Artifacts packages API — metadata, no download). The
+archive is downloaded only when that version is newer than the cached one
+and you confirm (or pass `--sync`, or run `dongle update`). `dongle`
 does not manage credentials itself — it shells out to `az`, which
 authenticates however you're already logged in (`az login`), or via
 `AZURE_DEVOPS_EXT_PAT` in CI.
 
-- `dongle update` force-downloads the latest index now, ignoring the TTL, and
-  prints the index version and the plugins it lists (marking installed ones
-  and available upgrades). If the feed can't be reached it exits non-zero
+- `dongle update` checks the feed for the latest index version and
+  downloads the index, without prompting, only if that version is newer than the cached
+  one, and prints the index version and the plugins it lists (marking
+  installed ones and available upgrades). If the feed can't be reached it exits non-zero
   and keeps whatever's already usable (cache or embedded seed); see
   "Embedded plugin index" above.
 - `dongle --version` prints both the CLI's own version and the version of the

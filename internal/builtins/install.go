@@ -20,7 +20,7 @@ import (
 // happens when the feed has a newer index than the cache (see
 // prepareIndex).
 func Install(hostVersion, protocol, name string, mode SyncMode) int {
-	if err := prepareIndex(mode); err != nil {
+	if err := prepareIndex(mode, true); err != nil {
 		ui.Errorf("%v", err)
 		return 1
 	}
