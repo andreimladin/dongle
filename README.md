@@ -422,11 +422,13 @@ independently.
 3. PR `plugins/<name>.yaml` to the (separate) index repo (version + feed
    coords + each platform's `selector` and the Universal Package `name` you
    published it under as `package`). See `examples/index/plugins/deploy.yaml`
-   and `index-repo/CONTRIBUTING.md`. Once merged to that repo's
-   `main`, its own publish pipeline (`index-repo/azure-pipelines-publish-index.yml`)
-   tags the commit with the next monotonic version and republishes the whole
-   `plugins/` directory as the `dongle-index` package — see "Index access"
-   below for how dongle then picks that up. At install time dongle downloads
+   `index-repo/CONTRIBUTING.md` (onboarding steps) and `index-repo/README.md`
+   (manifest reference). PRs target that repo's `develop` branch. Once
+   merged, the dongle team releases a new index version by queuing its
+   publish pipeline (`index-repo/azure-pipelines-publish-index.yml`) on a
+   `release/X.Y.Z` branch, which republishes the whole `plugins/` directory
+   as the `dongle-index` package at `X.Y.Z` — see "Index access" below for
+   how dongle then picks that up. At install time dongle downloads
    your plugin's package, takes the single file inside it, and installs it
    under a canonical entrypoint (`dongle-<name>`) — the file's own name
    inside the package doesn't matter.

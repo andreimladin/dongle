@@ -8,14 +8,16 @@
 # turning on branch protection + "Require review from Code Owners" makes
 # this file itself enforced automatically, with no other changes needed.
 #
-# Governance (see CONTRIBUTING.md for the full picture):
-#   - Per-plugin owners approve changes to their own plugins/<name>.yaml —
-#     version bumps, new platforms, feed coordinate changes.
-#   - NEW plugin manifests need central/platform-team review in addition
-#     to (or instead of, if there's no owner yet) a per-plugin owner. The
-#     PR pipeline (azure-pipelines-validate.yml) flags any plugins/*.yaml
-#     that didn't exist on the target branch so reviewers know to apply
-#     this.
+# Governance (see README.md — Governance):
+#   - Every manifest PR targets develop and needs the CI pipeline to pass
+#     plus 2 approvals from the dongle team (on Azure DevOps: a branch
+#     policy on develop with a minimum of 2 reviewers from the dongle team).
+#   - Per-plugin lines below record who owns each plugin, so they're
+#     added as reviewers on changes to it; they don't replace the 2
+#     dongle-team approvals.
+#   - The PR pipeline (azure-pipelines-validate.yml) flags any
+#     plugins/*.yaml that didn't exist on the target branch, so reviewers
+#     know a new plugin is being onboarded.
 #
 # Ownership is resolved top-to-bottom, LAST match wins (standard
 # CODEOWNERS semantics) — so put more specific rules below more general
