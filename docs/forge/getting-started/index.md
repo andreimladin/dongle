@@ -6,7 +6,7 @@ order; each one depends on the one before.
 | step | what you do | time |
 |---|---|---|
 | [Step 1 — Prerequisites](#step-1--prerequisites) | install the Azure CLI and sign in | ~10 min |
-| [Step 2 — Installation](#step-2--installation) | download dongle and put it on your `PATH` | ~5 min |
+| [Step 2 — Installation](#step-2--installation) | install dongle from Self Service or Company Portal | ~2 min |
 | [Step 3 — First run](#step-3--first-run) | run dongle once and check the result | ~1 min |
 
 ## Step 1 — Prerequisites
@@ -26,16 +26,15 @@ Details, CI setup and feed access: **[Prerequisites](prerequisites.md)**.
 
 ## Step 2 — Installation
 
-dongle is a single executable, published per platform as
-`dongle-<os>-<arch>` (for example `dongle-darwin-arm64`,
-`dongle-windows-amd64`).
+Install dongle from your company's app portal:
 
-1. Download the package for your platform with `az artifacts universal download`.
-2. Rename the file to `dongle` (`dongle.exe` on Windows).
-3. Put it in a folder on your `PATH`.
+- **macOS:** open **Self Service**, search for **dongle**, click **Install**.
+- **Windows:** open **Company Portal**, search for **dongle**, click **Install**.
 
-**Done when:** `dongle --version` prints a version from any terminal.
-Exact commands for macOS and Windows: **[Installation](installation.md)**.
+To update dongle later, use the same portal.
+
+**Done when:** `dongle --version` prints a version in a new terminal.
+Details: **[Installation](installation.md)**.
 
 ## Step 3 — First run
 

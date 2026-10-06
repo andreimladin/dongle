@@ -27,12 +27,13 @@ place, then look for your message below.
 
 | message | what to do |
 |---|---|
+| `dongle: command not found` / `'dongle' is not recognized` | open a new terminal. If it still fails, check that dongle is installed in Self Service (macOS) or Company Portal (Windows), and reinstall it if needed |
 | `the Azure CLI is required: install it and run az extension add --name azure-devops` | install the Azure CLI and the extension ([Prerequisites](../getting-started/prerequisites.md)) |
 | an `az ...` error mentioning 401, 403, login or authorization | run `az login` with an account that can read the feed |
 | `warning: could not check the feed for a newer plugin index` | the feed couldn't be reached; dongle continued with your local index. Check your network and `az login` |
 | `command "X" is not supported` | `X` isn't a builtin or an installed plugin. Check `dongle search`, then `dongle install X` |
 | `no plugin named X in the index` | check the spelling. If the plugin was added recently, run `dongle update`; if it's still missing, it hasn't been released in the index yet |
-| `X requires host >=… but this host is …` | the plugin needs a newer dongle. Upgrade dongle |
+| `X requires host >=… but this host is …` | the plugin needs a newer dongle. Update dongle from Self Service (macOS) or Company Portal (Windows) |
 | `X … has no build for <os>/<arch>` | the plugin doesn't support your platform. Contact its owners (`dongle support X`) |
 | `installed X … is newer than the index …; not downgrading` | expected. To force the index's version: `dongle remove X`, then `dongle install X` |
 | a script hangs or doesn't update the index | in scripts, pass `--sync` or `--no-sync` to `search`/`install`/`upgrade` |

@@ -11,7 +11,7 @@ once with `dongle install <name>`, then run it as `dongle <name> [args...]`.
 |---|---|---|
 | **Getting started** | [Getting started](getting-started/index.md) | go from nothing to a working dongle, step by step |
 | | ↳ [Step 1 — Prerequisites](getting-started/prerequisites.md) | install the Azure CLI and sign in |
-| | ↳ [Step 2 — Installation](getting-started/installation.md) | download dongle and put it on your `PATH` |
+| | ↳ [Step 2 — Installation](getting-started/installation.md) | install dongle from Self Service (macOS) or Company Portal (Windows) |
 | | ↳ [Step 3 — Your first run](getting-started/first-run.md) | know what happens the first time dongle starts |
 | **How to** | [Use dongle commands](how-to/use-commands.md) | find, install, upgrade and remove plugins |
 | | [Plug in your CLI](how-to/plug-in-your-cli.md) | make your own CLI available through dongle |
