@@ -10,18 +10,10 @@ package builtins
 
 import (
 	"sort"
-	"time"
 
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 )
-
-// IndexTTL is how long a cached index is trusted before commands that
-// read it (search, support) refresh it from the feed. install and upgrade
-// don't rely on it: they always check the feed for a newer index first
-// (see prepareIndex). Exported so other builtins that read the index
-// (e.g. `dongle support`) stay on the same freshness policy.
-const IndexTTL = time.Hour
 
 func sortManifests(ms []index.Manifest) {
 	sort.Slice(ms, func(i, j int) bool { return ms[i].Name < ms[j].Name })

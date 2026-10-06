@@ -33,7 +33,7 @@ func Upgrade(hostVersion, protocol, name string, mode SyncMode) int {
 		return 0
 	}
 
-	if err := prepareIndex(mode); err != nil {
+	if err := prepareIndex(mode, true); err != nil {
 		ui.Errorf("%v", err)
 		return 1
 	}

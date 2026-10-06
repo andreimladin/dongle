@@ -10,30 +10,11 @@ import (
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
-// EnsureFresh is index.EnsureFresh(IndexTTL) for the builtins that only
-// read the index (search, support): a spinner while the feed is contacted
-// (shown only when it will be), and a failed refresh of a still-usable
-// cache reported as a warning rather than an error.
-func EnsureFresh() error {
-	var sp *ui.Spinner
-	if index.NeedsRefresh(IndexTTL) {
-		sp = ui.StartSpinner("Refreshing plugin index...")
-	}
-	err := index.EnsureFresh(IndexTTL)
-	if sp != nil {
-		sp.Stop()
-	}
-	var stale *index.StaleError
-	if errors.As(err, &stale) {
-		ui.Warnf("%v", stale)
-		return nil
-	}
-	return err
-}
-
-// Search shows what's available in the catalog (needs the index cache).
-func Search() int {
-	if err := EnsureFresh(); err != nil {
+// Search shows what's available in the catalog. Like install/upgrade it
+// first checks the feed for a newer index version and, per mode, offers to
+// download it (see prepareIndex).
+func Search(mode SyncMode) int {
+	if err := prepareIndex(mode, false); err != nil {
 		ui.Errorf("%v", err)
 		return 1
 	}
@@ -59,9 +40,11 @@ func Search() int {
 
 // Support prints where to get help with a plugin, straight from its index
 // manifest — installed state is never consulted, so it works for any
-// plugin in the index (`dongle support`).
+// plugin in the index (`dongle support`). It reads the cached index as-is
+// and never contacts the feed (support links rarely change; `dongle
+// update` or a search/install refreshes the index).
 func Support(name string) int {
-	if err := EnsureFresh(); err != nil {
+	if err := index.EnsureCache(); err != nil {
 		ui.Errorf("%v", err)
 		return 1
 	}
