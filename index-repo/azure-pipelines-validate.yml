@@ -12,7 +12,7 @@
 # Two ways this runs:
 #   - On every PR to develop (or main): validates only the plugins/*.yaml
 #     files that changed in the PR (fast), and flags brand-new plugin files so
-#     reviewers know a new plugin is being onboarded (see README.md).
+#     reviewers know a new plugin is being onboarded (see CONTRIBUTING.md).
 #   - On a nightly schedule (or a manual queue, always available regardless
 #     of trigger config): a full scan of every plugins/*.yaml, to catch
 #     drift in manifests nobody touched — e.g. a package referenced by an
@@ -134,7 +134,7 @@ steps:
         fi
 
         for f in "${added[@]}"; do
-          msg="NEW PLUGIN MANIFEST: $f — a new plugin is being onboarded; it needs 2 approvals from the dongle team (see README.md — Governance)."
+          msg="NEW PLUGIN MANIFEST: $f — a new plugin is being onboarded; it needs 2 approvals from the dongle team (see CONTRIBUTING.md)."
           echo "##vso[task.logissue type=warning]$msg"
 
           # Best-effort PR comment in addition to the log warning above —

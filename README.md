@@ -12,6 +12,11 @@ path** is fully wired except for the one Azure-feed download call, which is a
 clearly marked stub. Authentication is intentionally **not built yet** — it's the
 next area of work.
 
+## Documentation
+
+User and plugin-owner docs: [`docs/forge/`](docs/forge/README.md). This
+README covers building and developing dongle itself.
+
 ## Build & run
 
 The host has a single external dependency (`gopkg.in/yaml.v3`, for the index),
@@ -27,28 +32,10 @@ sh demo.sh          # local-dir install lifecycle, end to end
 
 ### Commands
 
-```
-dongle search                 list plugins available in the index
-dongle install <name>         install a plugin from the index
-dongle upgrade [name]         upgrade one plugin, or every installed plugin
-dongle remove <name>          remove an installed plugin
-dongle update                 download the latest plugin index from the feed
-dongle support <name>         show where to get help with a plugin
-dongle <plugin> [args...]     run an installed plugin (args passed through)
-dongle --version              host, index and installed-plugin versions
-                              (this is also how to see what's installed)
-dongle [command] --help       help (there is no `help` command)
-```
-
-A name that is neither a builtin nor an installed plugin is an error: dongle
-prints `error: command "X" is not supported` followed by the root help, and
-exits non-zero.
-
-**Output conventions.** Command results go to stdout; status messages,
-warnings, errors, prompts and spinners go to stderr, so stdout stays clean
-for piping. Color, symbols and spinners appear only when the stream they're
-written to is a terminal (and `NO_COLOR` isn't set); piped or CI output is
-plain text, one status line per step, and never prompts.
+`dongle search | install | upgrade | remove | update | support`, `dongle
+<plugin> [args...]`, `dongle --version`, `--help`. The full reference
+(flags, exit codes, output conventions, environment variables) is in
+[docs/forge/reference/commands.md](docs/forge/reference/commands.md).
 
 ### Two ways to build the host
 
@@ -388,85 +375,28 @@ index-repo/              staged files for the separate plugin index repo
                         publish-to-feed pipelines, contributor docs
 ```
 
-## The host↔plugin contract (language-agnostic)
+## User and plugin-owner documentation
 
-The host execs `dongle-<name> <args...>` with:
+The authoritative docs for dongle users and plugin owners live in
+[`docs/forge/`](docs/forge/README.md) (published to Forge —
+TODO: Forge base URL):
 
-- **argv** — everything after the plugin name.
-- **env** — `DONGLE_VERSION`, `DONGLE_PROTOCOL`, `DONGLE_PLUGIN_NAME`.
-- **stdin/stdout/stderr/TTY inherited** — prompts and colors just work.
-- **exit code** — propagated.
+- how dongle works (dispatch, the host↔plugin contract, compatibility and
+  the three version axes, feeds, the index archive, embedding):
+  [explanation/design.md](docs/forge/explanation/design.md)
+- the manifest spec: [reference/manifest-reference.md](docs/forge/reference/manifest-reference.md)
+- onboarding a plugin: [how-to/plug-in-your-cli.md](docs/forge/how-to/plug-in-your-cli.md)
+  and the index repo's `CONTRIBUTING.md` (staged in `index-repo/`)
+- the validator: [reference/tools/1es-cli-validate-manifest.md](docs/forge/reference/tools/1es-cli-validate-manifest.md)
 
-An existing **cobra** CLI becomes a plugin by setting its root command's `Use` to
-the plugin name and adding a manifest to the index (naming its per-platform
-binary and `requires`); its whole subcommand tree keeps working because
-dispatch hands args straight to cobra. It needs nothing from dongle — the
-context arrives as plain env vars. See `examples/dongle-deploy`.
-
-## Three version axes
-
-Bound by each plugin's manifest `requires`: the host's semver (`hostVersion`
-in `cmd/root.go`), each plugin's semver, and a slow-moving protocol
-version. Host and protocol are separate constants so they release
-independently.
-
-## Publishing a plugin (index repo + shared Azure feed)
-
-1. Build the plugin binary for each `os/arch` you support.
-2. Publish each platform's binary as its own Universal Package to the shared
-   Azure Artifacts feed: `az artifacts universal publish --feed dongle-plugins
-   --name dongle-deploy_2.3.1_linux_amd64 --version 2.3.1 --path ./dist/linux_amd64`.
-   The package name is a plugin-publisher convention — dongle doesn't parse
-   it — but a name that encodes plugin/version/os/arch keeps feed browsing
-   sane. Each package must contain exactly one file: the binary itself.
-3. PR `plugins/<name>.yaml` to the (separate) index repo (version + feed
-   coords + each platform's `selector` and the Universal Package `name` you
-   published it under as `package`). See `examples/index/plugins/deploy.yaml`
-   `index-repo/CONTRIBUTING.md` (onboarding steps) and `index-repo/README.md`
-   (manifest reference). PRs target that repo's `develop` branch. Once
-   merged, the dongle team releases a new index version by queuing its
-   publish pipeline (`index-repo/azure-pipelines-publish-index.yml`) on a
-   `release/X.Y.Z` branch, which republishes the whole `plugins/` directory
-   as the `dongle-index` package at `X.Y.Z` — see "Index access" below for
-   how dongle then picks that up. At install time dongle downloads
-   your plugin's package, takes the single file inside it, and installs it
-   under a canonical entrypoint (`dongle-<name>`) — the file's own name
-   inside the package doesn't matter.
-
-If the Azure Artifacts feed is scoped to a project (rather than organization-wide),
-set `feed.project` in the index manifest — `downloadArtifact` passes `--project`
-and `--scope project` to `az artifacts universal download` when it's set.
-Org-scoped feeds omit `feed.project` entirely.
+`index-repo/` holds the files staged for the separate index repo (its
+`README.md`, `CONTRIBUTING.md`, PR template, `CODEOWNERS` and pipelines);
+copy them to that repo's root.
 
 ## Index access
 
-The plugin index is a versioned feed archive, not a git repo `dongle`
-clones: a `dongle-index` Universal Package (`index.tar.gz`, containing
-`plugins/*.yaml` plus a `VERSION` file) published to the shared Azure
-Artifacts feed by the separate index repo's own pipeline (see
-`index-repo/azure-pipelines-publish-index.yml`) on every merge to its
-`main`. `dongle` downloads it via `az artifacts universal download`,
-extracts it, and caches it locally, same as
-`internal/builtins.downloadArtifact` does for plugin binaries. Checking for
-a newer index (`search`, `install`, `upgrade`, `dongle update`) is cheap:
-it asks the feed only for the latest index *version* (`az devops invoke`
-against the Azure Artifacts packages API — metadata, no download). The
-archive is downloaded only when that version is newer than the cached one
-and you confirm (or pass `--sync`, or run `dongle update`). `dongle`
-does not manage credentials itself — it shells out to `az`, which
-authenticates however you're already logged in (`az login`), or via
-`AZURE_DEVOPS_EXT_PAT` in CI.
-
-- `dongle update` checks the feed for the latest index version and
-  downloads the index, without prompting, only if that version is newer than the cached
-  one, and prints the index version and the plugins it lists (marking
-  installed ones and available upgrades). If the feed can't be reached it exits non-zero
-  and keeps whatever's already usable (cache or embedded seed); see
-  "Embedded plugin index" above.
-- `dongle --version` prints both the CLI's own version and the version of the
-  index currently cached (marked `(embedded)` if it's still the build-time
-  seed rather than something fetched from the feed), or says none is cached
-  yet.
+How the index is released, cached and refreshed is described in
+[docs/forge/explanation/design.md](docs/forge/explanation/design.md#the-index-a-released-archive-not-a-live-repo).
 
 Dev overrides: `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`,
 and `DONGLE_INDEX_PACKAGE` each override the corresponding value injected at

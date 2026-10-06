@@ -8,7 +8,7 @@
 # turning on branch protection + "Require review from Code Owners" makes
 # this file itself enforced automatically, with no other changes needed.
 #
-# Governance (see README.md — Governance):
+# Governance (see CONTRIBUTING.md):
 #   - Every manifest PR targets develop and needs the CI pipeline to pass
 #     plus 2 approvals from the dongle team (on Azure DevOps: a branch
 #     policy on develop with a minimum of 2 reviewers from the dongle team).
