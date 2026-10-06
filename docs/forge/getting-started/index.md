@@ -1,59 +1,62 @@
 # Getting started
 
-Go from nothing to running your first plugin in three steps. Follow them in
-order; each one depends on the one before.
-
-| step | what you do | time |
-|---|---|---|
-| [Step 1 — Prerequisites](#step-1--prerequisites) | install the Azure CLI and sign in | ~10 min |
-| [Step 2 — Installation](#step-2--installation) | install dongle from Self Service or Company Portal | ~2 min |
-| [Step 3 — First run](#step-3--first-run) | run dongle once and check the result | ~1 min |
+Three steps to a working dongle.
 
 ## Step 1 — Prerequisites
 
-dongle uses the **Azure CLI (`az`)** to download the plugin index and plugins
-from Azure Artifacts feeds, so `az` must be installed **and** signed in with
-access to those feeds.
+dongle uses the Azure CLI to download plugins, so you need it installed and
+signed in.
 
-1. Install the Azure CLI — Windows: `winget install --exact --id Microsoft.AzureCLI`;
-   macOS: `brew install azure-cli`.
-2. Add the extension dongle needs: `az extension add --name azure-devops`.
-3. Sign in: `az login`, with an account that has **Reader** access on the
-   dongle feeds.
+1. Install the Azure CLI:
+   - **Windows:** `winget install --exact --id Microsoft.AzureCLI`
+   - **macOS:** `brew install azure-cli`
+2. Add the Azure DevOps extension:
 
-**Done when:** `az version` works and `az login` succeeded.
-Details, CI setup and feed access: **[Prerequisites](prerequisites.md)**.
+   ```sh
+   az extension add --name azure-devops
+   ```
+
+3. Sign in:
+
+   ```sh
+   az login
+   ```
+
+<!-- TODO: how to request access to the dongle feeds, if not granted by default. -->
 
 ## Step 2 — Installation
 
-Install dongle from your company's app portal:
-
-- **macOS:** open **Self Service**, search for **dongle**, click **Install**.
-- **Windows:** open **Company Portal**, search for **dongle**, click **Install**.
-
-To update dongle later, use the same portal.
-
-**Done when:** `dongle --version` prints a version in a new terminal.
-Details: **[Installation](installation.md)**.
+- **macOS:** open **Self Service**, search for **dongle**, and click
+  **Install** (or **Update**).
+- **Windows:** open **Company Portal**, search for **dongle**, and click
+  **Install** (or **Update**).
 
 ## Step 3 — First run
 
-Run any dongle command, for example:
+Open a new terminal and run:
 
 ```sh
 dongle --version
 ```
 
-The first time, dongle sets itself up — it unpacks its built-in plugin index
-and installs the default plugins (no network needed) — then runs your
-command. You'll see a few `✓` lines ending in `✓ Initialization complete.`
+The first time, dongle sets itself up: it unpacks its plugin index and
+installs the default plugins. This happens only once and takes a few
+seconds:
 
-**Done when:** `dongle --version` shows an index version and the default
-plugins under `installed plugins:`.
-What happens and what you'll see: **[Your first run](first-run.md)**.
+```
+✓ Initialized plugin index 1.4.0
+✓ Installed tacho 1.2.0
+✓ Installed bell 0.3.1
+✓ Initialization complete.
+dongle    1.0.0
+index     1.4.0 (embedded)
 
-## Next steps
+installed plugins:
+  bell    0.3.1
+  tacho   1.2.0
+```
 
-- Find and install plugins: [Use dongle commands](../how-to/use-commands.md)
-- Understand what's going on: [Concepts](../explanation/concepts.md)
-- Something not working: [Troubleshooting](../troubleshooting/troubleshooting.md)
+(Your versions and default plugins may differ.)
+
+You're ready. Next, find and install plugins:
+[Use dongle commands](../how-to/use-commands.md).

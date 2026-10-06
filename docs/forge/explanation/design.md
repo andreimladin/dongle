@@ -67,7 +67,7 @@ dongle has no package server of its own. Plugin executables are stored as
 **Universal Packages in Azure Artifacts feeds**, one package per plugin
 version and platform. dongle doesn't talk to Azure itself. It calls the
 **Azure CLI (`az`)**, which uses whatever sign-in you already have. That's
-why `az` is a [prerequisite](../getting-started/prerequisites.md), and why
+why `az` is a [prerequisite](../getting-started/index.md#step-1--prerequisites), and why
 dongle never stores credentials.
 
 Installing a plugin means:
@@ -115,7 +115,7 @@ Release builds of dongle **embed** two things at build time:
 - a copy of the current `dongle-index` archive;
 - a set of **default plugins** chosen by the dongle team.
 
-On the [first run](../getting-started/first-run.md), dongle unpacks both,
+On the [first run](../getting-started/index.md#step-3--first-run), dongle unpacks both,
 so a new install works immediately and **offline**, and `--version` labels
 that index `(embedded)`. After that, the normal checking/downloading cycle
 takes over. Developer builds embed nothing and download the index on first

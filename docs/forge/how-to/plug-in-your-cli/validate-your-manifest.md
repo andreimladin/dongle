@@ -8,7 +8,7 @@ For its full usage, flags and the list of checks, see the
 
 **Before you start:** have the Azure CLI installed, with the
 `azure-devops` extension, and signed in with read access to your plugin's
-feed. See [Prerequisites](../../getting-started/prerequisites.md). The tool
+feed. See [Prerequisites](../../getting-started/index.md#step-1--prerequisites). The tool
 uses it to check that your packages exist.
 
 ## 1. Get the tool

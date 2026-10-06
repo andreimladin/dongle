@@ -12,7 +12,7 @@ of the real one.
 
 - A **released** dongle binary. A developer build (`dongle --version` shows
   `dev`) rejects any manifest that sets `requires.host`.
-- The Azure CLI, signed in (see [Prerequisites](../../getting-started/prerequisites.md)).
+- The Azure CLI, signed in (see [Prerequisites](../../getting-started/index.md#step-1--prerequisites)).
 - Your plugin's packages published to the feed named in your manifest.
 
 ## Quick check: run the executable directly
