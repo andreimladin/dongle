@@ -26,10 +26,17 @@ signed in.
 
 ## Step 2 — Installation
 
-- **macOS:** open **Self Service**, search for **dongle**, and click
-  **Install** (or **Update**).
-- **Windows:** open **Company Portal**, search for **dongle**, and click
-  **Install** (or **Update**).
+Install dongle from your company's app portal:
+
+- **macOS:** open the **Self Service** app, search for **dongle**, and
+  click **Install**.
+- **Windows:** open the **Company Portal** app, search for **dongle**, and
+  click **Install**.
+
+To update dongle later, do the same and click **Update**.
+
+The portal sets everything up, including adding `dongle` to your `PATH`.
+There's nothing to download or configure by hand.
 
 ## Step 3 — First run
 
