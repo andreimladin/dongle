@@ -1,5 +1,9 @@
 # Your first run
 
+**Step 3 of 3** in [Getting started](index.md). Before you begin, complete
+[Step 1 — Prerequisites](prerequisites.md) and
+[Step 2 — Installation](installation.md).
+
 The first time you run any `dongle` command, it sets itself up before the
 command runs. This happens once, takes a moment, and **doesn't need network
 access**.

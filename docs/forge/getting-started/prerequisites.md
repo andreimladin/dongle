@@ -1,5 +1,7 @@
 # Prerequisites
 
+**Step 1 of 3** in [Getting started](index.md).
+
 dongle doesn't download anything itself. It calls the **Azure CLI (`az`)**
 to read the plugin index and to download plugins from Azure Artifacts
 feeds. Before using dongle, you need:
@@ -90,19 +92,4 @@ export AZURE_DEVOPS_EXT_PAT=<token>        # macOS/Linux
 $env:AZURE_DEVOPS_EXT_PAT = "<token>"      # Windows PowerShell
 ```
 
-## 4. Get dongle
-
-Each dongle release is published as one package per platform, named
-`dongle-<os>-<arch>`: `dongle-darwin-arm64`, `dongle-darwin-amd64`,
-`dongle-windows-amd64`, `dongle-windows-arm64` (Linux builds exist too).
-<!-- TODO: host feed name, organization, recommended install location, and
-     the exact download command for each OS. -->
-
-Put the binary on your `PATH` as `dongle` (`dongle.exe` on Windows), then
-check that it runs:
-
-```sh
-dongle --version
-```
-
-Next: [Your first run](first-run.md).
+**Next: [Step 2 — Installation](installation.md).**
