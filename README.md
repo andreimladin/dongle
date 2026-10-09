@@ -351,16 +351,15 @@ internal/dispatch/     resolve -> compat -> exec
 internal/builtins/     the builtin commands, one file each: search.go
                         (search/support), install.go, remove.go,
                         upgrade.go, update.go, version.go (--version),
-                        initialize.go (first run), plus index.go (the
-                        shared index-check prompt/spinner/summary that
-                        search/install/upgrade use); built on
+                        initialize.go (first run); built on
                         internal/index/state/ui
 internal/ui/           TTY-aware output: aligned tables, color, status
                         lines, spinner, y/N prompt
 internal/index/        feed-archive catalog: downloads + extracts the
-                        versioned dongle-index package, Prepare (ensure
-                        cache, 1h TTL, version check — no terminal I/O),
-                        lookups, embedded-seed fallback for offline first run
+                        versioned dongle-index package, Prepare/Update
+                        (ensure cache, 1h TTL, version check, update
+                        prompt, index summary), lookups, embedded-seed
+                        fallback for offline first run
 tools/resolve-plugin/   build-time-only helper: manifest -> feed coordinates
                         + version for one plugin/platform (not a dongle
                         subcommand) — see "Embedded default plugins" above

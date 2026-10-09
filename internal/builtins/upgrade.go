@@ -16,8 +16,8 @@ import (
 // plugin. Only installed plugins are considered, and a plugin whose
 // installed version is ahead of the index is never downgraded.
 // mode decides what happens when the feed has a newer index than the
-// cache (see prepareIndex).
-func Upgrade(hostVersion, protocol, name string, mode SyncMode) int {
+// cache (see index.Prepare).
+func Upgrade(hostVersion, protocol, name string, mode index.SyncMode) int {
 	st, err := state.Load()
 	if err != nil {
 		ui.Errorf("%v", err)
@@ -33,7 +33,7 @@ func Upgrade(hostVersion, protocol, name string, mode SyncMode) int {
 		return 0
 	}
 
-	if err := prepareIndex(mode, true); err != nil {
+	if err := index.Prepare(mode, true); err != nil {
 		ui.Errorf("%v", err)
 		return 1
 	}
