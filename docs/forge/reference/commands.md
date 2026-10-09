@@ -37,12 +37,15 @@ unknown name.
 
 `search`, `install` and `upgrade` first make sure an index is cached, then
 check the feed for a newer index version (a metadata query, nothing is
-downloaded). What happens when a newer one exists depends on these flags:
+downloaded). Without `--sync`, that check runs only when the cached index
+was last downloaded or confirmed current more than **1 hour** ago; within
+the hour the cached index is used silently. What happens when a newer one
+exists depends on these flags:
 
 | flag | behavior |
 |---|---|
-| *(neither)* | on a terminal: ask `Update the index first? [y/N]` (default **no**). Not on a terminal: keep the cached index and print a `note:` suggesting `dongle update` or `--sync` |
-| `--sync` | download and apply the newer index without asking |
+| *(neither)* | `install`/`upgrade` on a terminal: ask `Update the index first? [y/N]` (default **no**). `search`, or not on a terminal: keep the cached index and print a `note:` suggesting `dongle update` or `--sync` |
+| `--sync` | check even within the hour; download and apply a newer index without asking |
 | `--no-sync` | skip the check; use the cached index (`Using cached plugin index X (--no-sync).`) |
 
 `--sync` and `--no-sync` are mutually exclusive. Passing both is a usage
