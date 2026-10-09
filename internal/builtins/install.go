@@ -18,8 +18,19 @@ import (
 
 // Install resolves name from the index and installs it. mode decides what
 // happens when the feed has a newer index than the cache (see
-// prepareIndex).
+// prepareIndex). An already-installed plugin is left alone: Install
+// reports its version, points at `upgrade`, and succeeds.
 func Install(hostVersion, protocol, name string, mode SyncMode) int {
+	st, err := state.Load()
+	if err != nil {
+		ui.Errorf("%v", err)
+		return 1
+	}
+	if inst, ok := st.Plugins[name]; ok {
+		reportAlreadyInstalled(inst)
+		return 0
+	}
+
 	if err := prepareIndex(mode, true); err != nil {
 		ui.Errorf("%v", err)
 		return 1
@@ -35,6 +46,24 @@ func Install(hostVersion, protocol, name string, mode SyncMode) int {
 		return 1
 	}
 	return installResolved(hostVersion, protocol, m, "")
+}
+
+// reportAlreadyInstalled tells the user inst is already installed and how
+// to upgrade it. It runs before any feed check, so the only "latest"
+// version it can mention is the one in the locally cached index — read
+// from disk, never fetched — and it falls back to the plain message when
+// that isn't available or isn't newer.
+func reportAlreadyInstalled(inst state.Installed) {
+	upgrade := fmt.Sprintf("%s upgrade %s", hostBinaryName(), inst.Name)
+	if m, err := index.Load(inst.Name); err == nil {
+		if cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion); err == nil && cmp > 0 {
+			ui.Infof("%s is already installed (%s). A newer version (%s) is available — run: %s",
+				inst.Name, inst.ActiveVersion, strings.TrimPrefix(m.Version, "v"), upgrade)
+			return
+		}
+	}
+	ui.Infof("%s is already installed (version %s). To update it, run: %s",
+		inst.Name, inst.ActiveVersion, upgrade)
 }
 
 // installResolved compat-checks, downloads and places the plugin m
