@@ -17,17 +17,20 @@ import (
 type SyncMode int
 
 const (
-	// SyncAsk prompts when stdin is a terminal, and otherwise keeps the
-	// cached index and prints a note (never hangs a script).
+	// SyncAsk checks only once the cache is older than index.CheckTTL;
+	// then install/upgrade prompt when stdin is a terminal, and otherwise
+	// (and always, for search) keep the cached index and print a note
+	// (never hangs a script).
 	SyncAsk SyncMode = iota
-	// SyncAlways updates the index first without asking (--sync).
+	// SyncAlways checks regardless of the TTL and updates the index first
+	// without asking (--sync).
 	SyncAlways
 	// SyncNever uses the cached index without checking the feed (--no-sync).
 	SyncNever
 )
 
-// Update brings the cached index up to date with the feed, ignoring the
-// TTL (`dongle update`): it first asks the feed for the latest index
+// Update brings the cached index up to date with the feed, ignoring
+// index.CheckTTL (`dongle update`): it first asks the feed for the latest index
 // version (metadata only), downloads the archive only when that version is
 // newer than the cached one, and then prints the index version and the
 // plugins it lists. On failure the existing cache stays in use — or, with
@@ -91,17 +94,22 @@ func fetchAndApply(v string) error {
 	return latest.Apply()
 }
 
-// prepareIndex runs before search/install/upgrade act: it makes sure an index is
-// cached, then asks the feed for its latest index version — a metadata
-// query, no download — and compares it to the cached one. Only when the
-// feed's is newer and, per mode (and whether the user can be prompted),
-// the update is accepted is the index archive downloaded and swapped in;
-// otherwise nothing is downloaded and the cached copy is used. It always
-// tells the user (on stderr) which of those happened. Failing to reach the
-// feed is not an error: the cached index is used and a warning says so.
-// summary prints the updated index's plugin list after an update (search
-// skips it, since listing the plugins is its own output).
-func prepareIndex(mode SyncMode, summary bool) error {
+// prepareIndex runs before search/install/upgrade act: it makes sure an
+// index is cached and then, unless the cache is younger than
+// index.CheckTTL (or mode is SyncNever), asks the feed for its latest
+// index version — a metadata query, no download — and compares it to the
+// cached one. Within the TTL nothing is checked or printed: the cache is
+// used as-is. --sync (SyncAlways) checks regardless of the TTL.
+//
+// When the feed's index is newer, what happens depends on mutating:
+// install/upgrade (true) download and swap it in once the update is
+// accepted — per mode, and whether the user can be prompted — and then
+// print the new index's plugin list; search (false) never prompts, just
+// notes that a newer index exists and uses the cache (unless --sync).
+// Otherwise nothing is downloaded and the cached copy is used. Failing to
+// reach the feed is not an error: the cached index is used and a warning
+// says so.
+func prepareIndex(mode SyncMode, mutating bool) error {
 	if !index.HasCache() && !index.HasEmbedded() {
 		// Nothing cached and nothing embedded to seed from: the first
 		// download is the latest by definition, so there's nothing newer
@@ -124,6 +132,9 @@ func prepareIndex(mode SyncMode, summary bool) error {
 		ui.Infof("Using cached plugin index %s (--no-sync).", cached)
 		return nil
 	}
+	if mode == SyncAsk && index.IsFresh(index.CheckTTL) {
+		return nil
+	}
 
 	sp := ui.StartSpinner("Checking for a newer plugin index...")
 	latest, err := index.LatestVersion()
@@ -144,6 +155,10 @@ func prepareIndex(mode SyncMode, summary bool) error {
 	switch {
 	case mode == SyncAlways:
 		update = true
+	case !mutating:
+		ui.Notef("a newer plugin index is available (%s -> %s); using the cached one.", cached, latest)
+		ui.Notef("run `dongle update`, or pass --sync, to update it first.")
+		return nil
 	case ui.StdinIsTerminal():
 		update = ui.Confirm(fmt.Sprintf(
 			"A newer plugin index is available (%s %s %s). Update the index first?", cached, ui.Err.Arrow(), latest))
@@ -167,7 +182,7 @@ func prepareIndex(mode SyncMode, summary bool) error {
 	}
 	cur, _ := index.CachedVersion()
 	ui.Successf("Updated plugin index %s %s %s.", cached, ui.Err.Arrow(), cur)
-	if summary {
+	if mutating {
 		writeIndexSummary(os.Stderr, ui.Err, cached)
 		fmt.Fprintln(os.Stderr)
 	}

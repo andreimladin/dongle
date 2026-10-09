@@ -11,8 +11,9 @@ import (
 )
 
 // Search shows what's available in the catalog. Like install/upgrade it
-// first checks the feed for a newer index version and, per mode, offers to
-// download it (see prepareIndex).
+// first checks the feed for a newer index version once the cache is older
+// than index.CheckTTL, but it never prompts: a newer index is only noted
+// (or downloaded with --sync) — see prepareIndex.
 func Search(mode SyncMode) int {
 	if err := prepareIndex(mode, false); err != nil {
 		ui.Errorf("%v", err)

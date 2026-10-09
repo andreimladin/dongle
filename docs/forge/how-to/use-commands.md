@@ -71,12 +71,15 @@ The **index** is the list of available plugins and their latest versions.
 dongle keeps a local copy and never replaces it without telling you:
 
 - **`search`, `install` and `upgrade`** first ask the feed whether a newer
-  index exists (a quick check, nothing is downloaded). If there is one:
-  - in a terminal, dongle asks:
+  index exists (a quick check, nothing is downloaded) — at most once an
+  hour: within an hour of the last check or download they just use the
+  local copy. If there is a newer one:
+  - `install` and `upgrade` in a terminal ask:
     `A newer plugin index is available (1.4.0 → 1.5.0). Update the index first? [y/N]`
-  - in a script or CI, it doesn't ask. It uses the local copy and prints a
-    `note:` telling you how to update.
-- **`--sync`** updates the index first without asking. **`--no-sync`**
+  - `search`, and anything in a script or CI, doesn't ask. It uses the
+    local copy and prints a `note:` telling you how to update.
+- **`--sync`** checks right away, even within the hour, and updates the
+  index first without asking. **`--no-sync`**
   skips the check entirely and uses the local copy. These flags work on
   `search`, `install` and `upgrade`.
 - **`dongle update`** checks and downloads a newer index right away, then

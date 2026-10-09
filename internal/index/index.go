@@ -4,7 +4,8 @@
 // version -> Azure feed artifact. The cache is never replaced behind the
 // user's back: commands check the feed for a newer index *version*
 // (LatestVersion, metadata only) and download the archive (Fetch) only
-// once the user agrees, or when they run `dongle update`.
+// once the user agrees, or when they run `dongle update`. That automatic
+// check is skipped while the cache is younger than CheckTTL.
 //
 // A binary built with -tags embed also carries a seed copy of that same
 // archive baked in at build time (see internal/bootstrap.EmbeddedIndex and
@@ -214,8 +215,9 @@ func seedFromEmbedded() bool {
 // extractEmbedded does seedFromEmbedded's work without printing: ok is
 // false when nothing was embedded; err reports a failed extraction, which
 // leaves the cache untouched (except for a failure recording its version).
-// Failing to record the origin/freshness metadata is not fatal and is
-// ignored: the cache then just reads as fetched / stale.
+// Failing to record the origin metadata is not fatal and is ignored: the
+// cache then just reads as fetched. A seeded cache always reads as stale
+// (see IsFresh), so the next automatic check still asks the feed.
 func extractEmbedded() (ok bool, err error) {
 	archive, version, embedded := bootstrap.EmbeddedIndex()
 	if !embedded {
@@ -248,7 +250,10 @@ func extractEmbedded() (ok bool, err error) {
 		return true, err
 	}
 	_ = writeOrigin(OriginEmbedded)
-	_ = touchMeta()
+	// The seed was built into the binary, possibly long ago: it was never
+	// confirmed against the feed, so drop any freshness stamp left by a
+	// previous cache and let the next automatic check run.
+	_ = os.Remove(metaPath())
 	return true, nil
 }
 
@@ -467,6 +472,21 @@ func (l *Latest) Discard() { os.RemoveAll(l.staging) }
 // confirmed current against the feed, without re-downloading it.
 func MarkChecked() error { return touchMeta() }
 
+// CheckTTL is how long a cached index is trusted after it was last
+// downloaded from, or confirmed current against, the feed. Within it the
+// automatic freshness check search/install/upgrade run first is skipped
+// entirely — no feed call, no prompt. `dongle update` ignores it.
+const CheckTTL = time.Hour
+
+// IsFresh reports whether the cached index was refreshed from (or
+// confirmed current against) the feed less than ttl ago. A cache with no
+// freshness stamp — never checked, or seeded from the embedded copy — is
+// never fresh.
+func IsFresh(ttl time.Duration) bool {
+	age, err := cacheAge()
+	return err == nil && age >= 0 && age < ttl
+}
+
 // IsNewer reports whether index version a is newer than b. Index versions
 // are dotted numbers (e.g. 2024.03.01.1), compared part by part
 // numerically; a non-numeric part falls back to a string comparison, and
@@ -625,6 +645,15 @@ func extractTarGzReader(r io.Reader, destDir string) error {
 		}
 	}
 	return nil
+}
+
+// cacheAge is how long ago index.meta was stamped by touchMeta.
+func cacheAge() (time.Duration, error) {
+	fi, err := os.Stat(metaPath())
+	if err != nil {
+		return 0, err
+	}
+	return time.Since(fi.ModTime()), nil
 }
 
 func touchMeta() error {

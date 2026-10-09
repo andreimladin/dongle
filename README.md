@@ -239,25 +239,31 @@ makes sure *some* index is cached before a command reads it:
    cache, entirely offline, no feed call. A plain `go build ./cmd` (no
    `-tags embed`) has nothing embedded, so this falls back to a feed
    download instead, same as before this feature.
-3. **`dongle update`** — checks the feed's latest index version and
-   downloads it if newer, replacing the cache on success. On failure it
+3. **`dongle update`** — always checks the feed's latest index version
+   (ignoring the 1h TTL below) and downloads it if newer, replacing the cache on success. On failure it
    falls back to whatever is already usable — the existing cache, or (only
    if there's no cache yet) the embedded seed — so the CLI always ends up
    with *some* usable index rather than none at all.
 
 `search`, `install` and `upgrade` then check the feed for a **newer index
-version** than the cached one. The check is a metadata query only — the
-index archive is downloaded only after you agree:
+version** than the cached one — but only once the cache is more than **1
+hour** old (`internal/index.CheckTTL`), counted from the last time it was
+downloaded from, or confirmed current against, the feed. Within that hour
+the cache is used as-is: no feed call, no prompt. (A cache just seeded from
+the embedded copy has never been checked, so it is always due.) The check
+is a metadata query only — the index archive is downloaded only after you
+agree:
 
-- **Newer index, interactive** (stdin is a terminal): you're asked
-  `A newer plugin index is available (<old> -> <new>). Update the index
-  first? [y/N]`. Yes downloads the new index into the cache (install/upgrade
-  also print its plugins, as `dongle update` does) and then runs against it;
-  no uses the cached index and downloads nothing.
-- **Newer index, non-interactive** (piped/CI): never prompts or hangs —
-  the cached index is used and a note says a newer one is available.
-  `--sync` (update first) and `--no-sync` (use the cache, don't even check)
-  make the choice up front.
+- **Newer index, interactive** (stdin is a terminal): `install`/`upgrade`
+  ask `A newer plugin index is available (<old> -> <new>). Update the index
+  first? [y/N]`. Yes downloads the new index into the cache, prints its
+  plugins (as `dongle update` does) and then runs against it; no uses the
+  cached index and downloads nothing.
+- **Newer index, `search`, or non-interactive** (piped/CI): never prompts
+  or hangs — the cached index is used and a note says a newer one is
+  available.
+  `--sync` (check regardless of the TTL and update first) and `--no-sync`
+  (use the cache, don't even check) make the choice up front.
 - **No newer index**, or the feed can't be reached: proceeds on the cache.
 
 Either way the command says which happened (updated / used cache / already
