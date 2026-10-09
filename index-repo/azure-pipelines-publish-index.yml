@@ -38,7 +38,7 @@ pool:
 variables:
   # TODO: set these to your real Azure DevOps org/project + shared feed
   # before running this pipeline. This should be the SAME shared feed
-  # per-plugin binaries are published to (see docs/publishing-plugins.md)
+  # per-plugin binaries are published to (see the Forge Manifest reference)
   # — dongle-index is just one more package in it, distinguished by name.
   ORGANIZATION: "TODO-azure-devops-org" # e.g. "acme" (used as https://dev.azure.com/<ORGANIZATION>)
   PROJECT: "TODO-azure-devops-project" # leave empty ("") for an org-scoped feed
