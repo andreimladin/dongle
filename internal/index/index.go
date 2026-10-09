@@ -2,10 +2,12 @@
 // Universal Package (a tar+gzip archive of plugins/*.yaml manifests)
 // downloaded from Azure Artifacts and extracted, mapping plugin name ->
 // version -> Azure feed artifact. The cache is never replaced behind the
-// user's back: commands check the feed for a newer index *version*
-// (LatestVersion, metadata only) and download the archive (Fetch) only
-// once the user agrees, or when they run `dongle update`. That automatic
-// check is skipped while the cache is younger than CheckTTL.
+// user's back: Prepare makes sure an index is cached and checks the feed
+// for a newer index *version* (LatestVersion, metadata only) — skipped
+// while the cache is younger than CheckTTL, unless forced — and the
+// archive is downloaded over an existing cache (Download) only once the
+// command layer decides to: the user agrees, passes --sync, or runs
+// `dongle update`. This package does no prompting or terminal I/O.
 //
 // A binary built with -tags embed also carries a seed copy of that same
 // archive baked in at build time (see internal/bootstrap.EmbeddedIndex and
@@ -38,7 +40,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -180,8 +181,8 @@ func HasCache() bool {
 // EnsureCache makes sure *some* index is cached, without regard to its
 // age: when nothing is cached yet it seeds the cache from the embedded
 // index (offline), falling back to a feed download only when nothing was
-// embedded. Commands then check the feed for a newer index themselves
-// (see LatestVersion), so the cache is never silently replaced.
+// embedded. Prepare then checks the feed for a newer index, so the cache
+// is never silently replaced.
 func EnsureCache() error {
 	if HasCache() {
 		return nil
@@ -300,13 +301,7 @@ func writeOrigin(origin string) error {
 // download fetches the latest version of the index package from the feed
 // and swaps it in as the new cache. Used only when nothing is cached (so
 // there's no version to compare against first).
-func download() error {
-	latest, err := Fetch("*")
-	if err != nil {
-		return err
-	}
-	return latest.Apply()
-}
+func download() error { return Download("*") }
 
 // LatestVersion asks the feed for the latest published version of the
 // index package. It is a metadata query only — no archive bytes are
@@ -468,25 +463,6 @@ func (l *Latest) Apply() error {
 // Safe to call more than once.
 func (l *Latest) Discard() { os.RemoveAll(l.staging) }
 
-// MarkChecked records (in index.meta) when the cached index was last
-// confirmed current against the feed, without re-downloading it.
-func MarkChecked() error { return touchMeta() }
-
-// CheckTTL is how long a cached index is trusted after it was last
-// downloaded from, or confirmed current against, the feed. Within it the
-// automatic freshness check search/install/upgrade run first is skipped
-// entirely — no feed call, no prompt. `dongle update` ignores it.
-const CheckTTL = time.Hour
-
-// IsFresh reports whether the cached index was refreshed from (or
-// confirmed current against) the feed less than ttl ago. A cache with no
-// freshness stamp — never checked, or seeded from the embedded copy — is
-// never fresh.
-func IsFresh(ttl time.Duration) bool {
-	age, err := cacheAge()
-	return err == nil && age >= 0 && age < ttl
-}
-
 // IsNewer reports whether index version a is newer than b. Index versions
 // are dotted numbers (e.g. 2024.03.01.1), compared part by part
 // numerically; a non-numeric part falls back to a string comparison, and
@@ -645,23 +621,6 @@ func extractTarGzReader(r io.Reader, destDir string) error {
 		}
 	}
 	return nil
-}
-
-// cacheAge is how long ago index.meta was stamped by touchMeta.
-func cacheAge() (time.Duration, error) {
-	fi, err := os.Stat(metaPath())
-	if err != nil {
-		return 0, err
-	}
-	return time.Since(fi.ModTime()), nil
-}
-
-func touchMeta() error {
-	now := time.Now()
-	if err := os.WriteFile(metaPath(), []byte(now.Format(time.RFC3339)), 0o644); err != nil {
-		return err
-	}
-	return os.Chtimes(metaPath(), now, now)
 }
 
 // --- lookups ------------------------------------------------------------------
