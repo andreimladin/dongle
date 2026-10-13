@@ -1,10 +1,11 @@
 # 1es-cli-validate-manifest
 
-The manifest validator. The index repo's CI runs it on every manifest PR,
+The manifest validator. This repo's CI runs it on every manifest PR,
 and plugin owners can run it locally. For a step-by-step walkthrough, see
-[Validate your manifest](../../how-to/plug-in-your-cli/validate-your-manifest.md).
+[Validate your manifest](../CONTRIBUTING.md#3-validate-your-manifest) in
+CONTRIBUTING.md.
 For the manifest fields themselves, see the
-[Manifest reference](../manifest-reference.md).
+[Manifest reference](manifest-reference.md).
 
 <!-- TODO: naming — the tool's source is tools/validate-manifest in the dongle
      repo and it's currently published as validate-manifest-<os>-<arch>. If
@@ -27,8 +28,8 @@ It's a build/CI tool, not a dongle command.
 
 The packages are published to the tooling feed <!-- TODO: tooling feed name -->
 `<TODO-tooling-feed>`, at versions matching the dongle repo's
-`tooling/X.Y.Z` branches. The index repo's CI pins one version
-(`VALIDATE_MANIFEST_VERSION` in its `azure-pipelines-validate.yml`).
+`tooling/X.Y.Z` branches. This repo's CI pins one version
+(`VALIDATE_MANIFEST_VERSION` in `azure-pipelines-validate.yml`).
 
 Download:
 
@@ -146,7 +147,7 @@ followed by a final line `<passed>/<total> manifests passed`.
 
 ## In the index repo's CI
 
-`azure-pipelines-validate.yml` in the index repo downloads the pinned
+`azure-pipelines-validate.yml` in this repo downloads the pinned
 `validate-manifest-linux-amd64` and runs it:
 
 - **On PRs to `develop` (and `main`) that change `plugins/*.yaml`**: it runs

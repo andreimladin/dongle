@@ -14,8 +14,9 @@ next area of work.
 
 ## Documentation
 
-User and plugin-owner docs: [`docs/forge/`](docs/forge/README.md). This
-README covers building and developing dongle itself.
+User docs: [`docs/forge/`](docs/forge/README.md). Plugin-owner docs:
+[`index-repo/`](index-repo/README.md). This README covers building and
+developing dongle itself.
 
 ## Build & run
 
@@ -35,7 +36,7 @@ sh demo.sh          # local-dir install lifecycle, end to end
 `dongle search | install | upgrade | remove | update | support`, `dongle
 <plugin> [args...]`, `dongle --version`, `--help`. The full reference
 (flags, exit codes, output conventions, environment variables) is in
-[docs/forge/reference/commands.md](docs/forge/reference/commands.md).
+[docs/forge/reference/index.md](docs/forge/reference/index.md).
 
 ### Two ways to build the host
 
@@ -385,20 +386,22 @@ index-repo/              staged files for the separate plugin index repo
 
 ## User and plugin-owner documentation
 
-The authoritative docs for dongle users and plugin owners live in
-[`docs/forge/`](docs/forge/README.md) (published to Forge —
-TODO: Forge base URL):
+Docs are split by audience, with no content duplicated between the two:
 
-- how dongle works (dispatch, the host↔plugin contract, compatibility and
-  the three version axes, feeds, the index archive, embedding):
-  [explanation/design.md](docs/forge/explanation/design.md)
-- the manifest spec: [reference/manifest-reference.md](docs/forge/reference/manifest-reference.md)
-- onboarding a plugin: [how-to/plug-in-your-cli.md](docs/forge/how-to/plug-in-your-cli.md)
-  and the index repo's `CONTRIBUTING.md` (staged in `index-repo/`)
-- the validator: [reference/tools/1es-cli-validate-manifest.md](docs/forge/reference/tools/1es-cli-validate-manifest.md)
+- **dongle users** (and anything both audiences need):
+  [`docs/forge/`](docs/forge/README.md), published to Forge (TODO: Forge
+  base URL). This includes how dongle works (dispatch, the host↔plugin
+  contract, compatibility and the three version axes, feeds, the index
+  archive, embedding): [explanation/design.md](docs/forge/explanation/design.md).
+- **plugin owners**: the index repo's docs, staged in `index-repo/`, which
+  link to Forge for shared content:
+  - onboarding a plugin: [CONTRIBUTING.md](index-repo/CONTRIBUTING.md)
+  - the manifest spec: [docs/manifest-reference.md](index-repo/docs/manifest-reference.md)
+  - the validator: [docs/1es-cli-validate-manifest.md](index-repo/docs/1es-cli-validate-manifest.md)
 
 `index-repo/` holds the files staged for the separate index repo (its
-`README.md`, `CONTRIBUTING.md`, PR template, `CODEOWNERS` and pipelines);
+`README.md`, `CONTRIBUTING.md`, `docs/`, PR template, `CODEOWNERS` and
+pipelines);
 copy them to that repo's root.
 
 ## Index access

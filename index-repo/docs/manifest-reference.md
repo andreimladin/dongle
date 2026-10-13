@@ -1,12 +1,13 @@
 # Manifest reference
 
 The complete specification of a plugin manifest: `plugins/<name>.yaml` in
-the dongle index repo. **This page is the single source of truth for
-manifest fields.** Other pages link here instead of repeating it.
+this repo. **This page is the single source of truth for manifest fields.**
+Other pages link here instead of repeating it.
 
 What a manifest is for is explained in
-[Concepts](../explanation/concepts.md#what-is-a-manifest). How to submit one
-is in [Add your manifest](../how-to/plug-in-your-cli/add-your-manifest.md).
+[Concepts](<TODO-FORGE-BASE-URL>/explanation/concepts#what-is-a-manifest)
+(Forge). How to submit one is in
+[CONTRIBUTING.md](../CONTRIBUTING.md#2-add-your-manifest).
 
 ## Format rules
 
@@ -95,7 +96,9 @@ omitted, the column is blank.
 
 **Optional, mapping.** The compatibility gate. dongle checks it at install,
 at upgrade, and before every run. On failure, the plugin isn't
-installed or run, and the user sees the reason.
+installed or run, and the user sees the reason. See
+[Compatibility checks](<TODO-FORGE-BASE-URL>/explanation/design#compatibility-checks)
+(Forge).
 
 #### `requires.host`
 
@@ -299,7 +302,7 @@ support:
 ## Validation summary
 
 Exactly what CI checks, with every error message, is in the
-[1es-cli-validate-manifest reference](tools/1es-cli-validate-manifest.md#what-it-checks).
+[1es-cli-validate-manifest reference](1es-cli-validate-manifest.md#what-it-checks).
 In short: strict parsing, required fields, `name` = filename, valid
 `version`, a parseable `requires.host`, and the existence of every
 `platforms[].package` in `feed`. Not checked: `requires.protocol`,

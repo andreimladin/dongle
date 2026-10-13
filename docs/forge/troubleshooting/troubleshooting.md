@@ -38,7 +38,7 @@ place, then look for your message below.
 | `installed X … is newer than the index …; not downgrading` | expected. To force the index's version: `dongle remove X`, then `dongle install X` |
 | a script hangs or doesn't update the index | in scripts, pass `--sync` or `--no-sync` to `search`/`install`/`upgrade` |
 
-For what each command does, see the [Command reference](../reference/commands.md).
+For what each command does, see the [Command reference](../reference/index.md).
 
 ## Contact the 1ES CLI team
 

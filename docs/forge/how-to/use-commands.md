@@ -1,7 +1,7 @@
 # Use dongle commands
 
 This page covers the everyday tasks. For every flag and exit code, see the
-[Command reference](../reference/commands.md).
+[Command reference](../reference/index.md).
 
 Before you start, make sure you have the [prerequisites](../getting-started/index.md#step-1--prerequisites)
 set up: the Azure CLI installed and signed in.

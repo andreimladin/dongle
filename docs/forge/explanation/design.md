@@ -88,12 +88,9 @@ failed download never leaves a half-installed plugin.
 
 The index (the catalog of plugin manifests) is maintained in a git repo,
 but dongle never reads that repo. Instead, the dongle team **releases**
-the index:
-
-- a release packs the repo's `plugins/` folder, plus a `VERSION` file, into
-  `index.tar.gz`;
-- that archive is published to the feed as the **`dongle-index`** package,
-  at a version chosen by the dongle team (from a `release/X.Y.Z` branch).
+the index as a versioned package, **`dongle-index`**, in the feed. (How a
+release is built is described in the index repo's
+[README.md](<TODO-INDEX-REPO-URL>/README.md#how-the-index-is-released).)
 
 dongle keeps an extracted copy in `~/.dongle/index/`. To stay current, it
 splits the work into a cheap step and an expensive one:
