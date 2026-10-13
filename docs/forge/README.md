@@ -6,8 +6,8 @@
      TODO: index repo URL — replace <TODO-INDEX-REPO-URL> on these pages. -->
 
 These pages are for people who **use** dongle. Documentation for plugin
-owners who want to add their CLI to dongle (onboarding steps, the manifest
-reference, the manifest validator) lives in the plugin index repo:
+owners who want to add their CLI to dongle (onboarding steps and the
+manifest reference) lives in the plugin index repo:
 [README.md](<TODO-INDEX-REPO-URL>/README.md) and
 [CONTRIBUTING.md](<TODO-INDEX-REPO-URL>/CONTRIBUTING.md). Pages needed by
 both audiences live here, and the index repo links to them.

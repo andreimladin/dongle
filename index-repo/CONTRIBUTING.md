@@ -7,7 +7,7 @@ in a released index, anyone can run `dongle install <your-cli>` and then
 
 New to dongle? Read [Concepts](<TODO-FORGE-BASE-URL>/explanation/concepts)
 first. Every manifest field is specified in the
-[Manifest reference](docs/manifest-reference.md); this page doesn't repeat
+[Manifest reference](README.md#manifest-reference); this page doesn't repeat
 it.
 
 <!-- TODO: Forge base URL — replace <TODO-FORGE-BASE-URL> in the links below. -->
@@ -16,11 +16,10 @@ it.
 
 1. [Build and publish your executables](#1-build-and-publish-your-executables)
 2. [Add your manifest](#2-add-your-manifest)
-3. [Validate your manifest](#3-validate-your-manifest)
-4. [Run your plugin locally](#4-run-your-plugin-locally) (recommended)
-5. [Open a PR to `develop`](#5-open-a-pr-to-develop)
-6. [Get the PR merged](#6-get-the-pr-merged)
-7. [Ask for an index release](#7-ask-for-an-index-release)
+3. [Run your plugin locally](#3-run-your-plugin-locally) (recommended)
+4. [Open a PR to `develop`](#4-open-a-pr-to-develop)
+5. [Get the PR merged](#5-get-the-pr-merged)
+6. [Ask for an index release](#6-ask-for-an-index-release)
 
 ## Prerequisites
 
@@ -46,7 +45,7 @@ Publish one executable per supported platform to an Azure Artifacts feed,
 as Universal Packages, at the version you're about to declare in your
 manifest. The package rules (one file per package, versioning, naming) are
 in the Manifest reference under
-[`platforms[].package`](docs/manifest-reference.md#platformspackage). CI
+[`platforms[].package`](README.md#platformspackage). CI
 checks that the packages exist, so publish them **before** opening the PR.
 
 ## 2. Add your manifest
@@ -56,7 +55,7 @@ checks that the packages exist, so publish them **before** opening the PR.
    - **New plugin:** create `plugins/<name>.yaml`. The filename (without
      `.yaml`) must equal the `name` field, and it becomes the command
      (`dongle <name>`). The quickest start is to copy the
-     [full annotated example](docs/manifest-reference.md#full-annotated-example)
+     [full annotated example](README.md#full-annotated-example)
      and replace the values.
    - **New version of an existing plugin:** edit its file. Usually you bump
      `version` and update each `platforms[].package` to the packages you
@@ -65,86 +64,7 @@ checks that the packages exist, so publish them **before** opening the PR.
 Only touch your own plugin's manifest. The rest of the repo is maintained
 by the dongle team.
 
-## 3. Validate your manifest
-
-Check your manifest with **1es-cli-validate-manifest**. It's the same tool,
-running the same checks, that CI runs on your PR, so if it passes locally,
-CI should pass too. Its full usage, flags and list of checks are in the
-[1es-cli-validate-manifest reference](docs/1es-cli-validate-manifest.md).
-
-**Before you start:** have the Azure CLI installed, with the
-`azure-devops` extension, and signed in with read access to your plugin's
-feed (see
-[Prerequisites](<TODO-FORGE-BASE-URL>/getting-started#step-1--prerequisites)).
-The tool uses it to check that your packages exist.
-
-### Get the tool
-
-Choose one option.
-
-**Option A: download a published build** (macOS on Apple silicon, or
-Linux x64):
-
-```sh
-az artifacts universal download \
-  --organization https://dev.azure.com/<TODO-org> \
-  --feed <TODO-tooling-feed> \
-  --name validate-manifest-darwin-arm64 \
-  --version <TODO-version> \
-  --path ./bin
-chmod +x ./bin/validate-manifest-darwin-arm64
-```
-
-Use `--name validate-manifest-linux-amd64` on Linux.
-<!-- TODO: tooling feed name and the validator version CI currently pins
-     (VALIDATE_MANIFEST_VERSION in azure-pipelines-validate.yml). If the
-     packages are renamed to 1es-cli-validate-manifest-<os>-<arch>, update
-     the names here. -->
-
-**Option B: run it from the dongle source** (any OS, including Windows;
-needs Go installed). From a clone of the dongle repo:
-
-```sh
-go run ./tools/validate-manifest <path-to>/plugins/<name>.yaml
-```
-
-### Run it
-
-From the root of your fork:
-
-```sh
-./bin/validate-manifest-darwin-arm64 plugins/<name>.yaml
-```
-
-### Read the result
-
-When everything passes:
-
-```
-== plugins/deploy.yaml ==
-  correctness: OK
-  darwin/arm64 dongle-deploy_2.3.1_darwin_arm64@2.3.1: OK
-  windows/amd64 dongle-deploy_2.3.1_windows_amd64@2.3.1: OK
-
-1/1 manifests passed
-```
-
-The exit code is `0`. Anything else needs fixing:
-
-- **`correctness: FAIL`**: each `error:` line names a field. Fix it as
-  described in the [Manifest reference](docs/manifest-reference.md).
-  The package checks don't run until the manifest itself is correct.
-- **A platform line ends in `FAIL — ...`**: that package couldn't be
-  downloaded. Usually it hasn't been published yet, or the name, version or
-  feed in your manifest doesn't match what's in the feed. The `az` error
-  text follows the dash.
-
-Fix, re-run, and repeat until you see `1/1 manifests passed`.
-
-The validator checks your manifest and that your packages exist. It
-doesn't run your plugin. For that, see the next step.
-
-## 4. Run your plugin locally
+## 3. Run your plugin locally
 
 Recommended: test your plugin through dongle on your own machine
 **before** opening the PR, using your real manifest and your published
@@ -251,26 +171,36 @@ unset `DONGLE_DATA_DIR`).
 For every dongle command and flag, see the
 [Command reference](<TODO-FORGE-BASE-URL>/reference).
 
-## 5. Open a PR to `develop`
+## 4. Open a PR to `develop`
 
 Commit, push to your fork, and open a pull request **into this repo's
 `develop` branch**. Fill in the PR template and **attach your Checkmarx
 report**.
 
-## 6. Get the PR merged
+## 5. Get the PR merged
 
 A PR is merged only when both of these are true:
 
 - [ ] **The CI pipeline passes.** It validates the manifests your PR
-      changed (required fields, filename matches `name`, valid version, no
-      unknown fields) and checks that the executable package for **each
-      declared platform exists in the feed**. CI doesn't run or test your
-      plugin itself. If it fails, read the log, fix, and push again; CI
-      re-runs automatically. Details:
-      [1es-cli-validate-manifest](docs/1es-cli-validate-manifest.md#in-the-index-repos-ci).
+      changed and checks that the executable package for **each declared
+      platform exists in the feed** (see
+      [What CI checks](README.md#what-ci-checks)). CI doesn't run or test
+      your plugin itself.
 - [ ] **2 approvals from the dongle team.**
 
-## 7. Ask for an index release
+If CI fails, read the validation step's log:
+
+- **`correctness: FAIL`**: each `error:` line names a field. Fix it as
+  described in the [Manifest reference](README.md#manifest-reference). The
+  package checks don't run until the manifest itself is correct.
+- **A platform line ends in `FAIL — ...`**: that package couldn't be
+  downloaded. Usually it hasn't been published yet, or the name, version or
+  feed in your manifest doesn't match what's in the feed. The `az` error
+  text follows the dash.
+
+Fix and push again; CI re-runs automatically.
+
+## 6. Ask for an index release
 
 Merging doesn't make your plugin available. **Ask the dongle team to release
 a new index version** (see

@@ -48,7 +48,7 @@ Manifests are reviewed and validated before they're accepted, so every
 entry users see has been checked.
 
 The exact fields and rules are in the
-[Manifest reference](<TODO-INDEX-REPO-URL>/docs/manifest-reference.md) in
+[Manifest reference](<TODO-INDEX-REPO-URL>/README.md#manifest-reference) in
 the index repo. That page is the specification.
 
 ## What is the index

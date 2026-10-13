@@ -396,12 +396,11 @@ Docs are split by audience, with no content duplicated between the two:
 - **plugin owners**: the index repo's docs, staged in `index-repo/`, which
   link to Forge for shared content:
   - onboarding a plugin: [CONTRIBUTING.md](index-repo/CONTRIBUTING.md)
-  - the manifest spec: [docs/manifest-reference.md](index-repo/docs/manifest-reference.md)
-  - the validator: [docs/1es-cli-validate-manifest.md](index-repo/docs/1es-cli-validate-manifest.md)
+  - the manifest spec: the "Manifest reference" section of the index repo's
+    [README.md](index-repo/README.md#manifest-reference)
 
 `index-repo/` holds the files staged for the separate index repo (its
-`README.md`, `CONTRIBUTING.md`, `docs/`, PR template, `CODEOWNERS` and
-pipelines);
+`README.md`, `CONTRIBUTING.md`, PR template, `CODEOWNERS` and pipelines);
 copy them to that repo's root.
 
 ## Index access
