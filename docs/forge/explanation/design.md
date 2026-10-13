@@ -100,7 +100,8 @@ splits the work into a cheap step and an expensive one:
 
 - **checking**: before `search`, `install` and `upgrade`, it asks the feed
   only for the latest `dongle-index` *version*, without downloading
-  anything;
+  anything — and only when the local copy was last checked more than an
+  hour ago (`dongle update` and `--sync` always check);
 - **downloading**: only if that version is newer, and only with your
   consent (a prompt, `--sync`, or `dongle update`), it downloads and
   unpacks the archive and swaps it in.

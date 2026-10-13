@@ -2,9 +2,13 @@
 // Universal Package (a tar+gzip archive of plugins/*.yaml manifests)
 // downloaded from Azure Artifacts and extracted, mapping plugin name ->
 // version -> Azure feed artifact. The cache is never replaced behind the
-// user's back: commands check the feed for a newer index *version*
-// (LatestVersion, metadata only) and download the archive (Fetch) only
-// once the user agrees, or when they run `dongle update`.
+// user's back: Prepare (before search/install/upgrade) makes sure an index
+// is cached and checks the feed for a newer index *version*
+// (LatestVersion, metadata only) — skipped while the cache is younger
+// than CheckTTL — and downloads the archive (Fetch) only once the user
+// agrees or passes --sync; Update (`dongle update`) always checks and
+// downloads. This package owns that whole flow, including its prompt,
+// spinners and the index summary.
 //
 // A binary built with -tags embed also carries a seed copy of that same
 // archive baked in at build time (see internal/bootstrap.EmbeddedIndex and
@@ -35,6 +39,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -179,8 +184,8 @@ func HasCache() bool {
 // EnsureCache makes sure *some* index is cached, without regard to its
 // age: when nothing is cached yet it seeds the cache from the embedded
 // index (offline), falling back to a feed download only when nothing was
-// embedded. Commands then check the feed for a newer index themselves
-// (see LatestVersion), so the cache is never silently replaced.
+// embedded. Prepare then checks the feed for a newer index, so the cache
+// is never silently replaced.
 func EnsureCache() error {
 	if HasCache() {
 		return nil
@@ -214,8 +219,9 @@ func seedFromEmbedded() bool {
 // extractEmbedded does seedFromEmbedded's work without printing: ok is
 // false when nothing was embedded; err reports a failed extraction, which
 // leaves the cache untouched (except for a failure recording its version).
-// Failing to record the origin/freshness metadata is not fatal and is
-// ignored: the cache then just reads as fetched / stale.
+// Failing to record the origin metadata is not fatal and is ignored: the
+// cache then just reads as fetched. A seeded cache always reads as stale
+// (see IsFresh), so the next automatic check still asks the feed.
 func extractEmbedded() (ok bool, err error) {
 	archive, version, embedded := bootstrap.EmbeddedIndex()
 	if !embedded {
@@ -248,7 +254,10 @@ func extractEmbedded() (ok bool, err error) {
 		return true, err
 	}
 	_ = writeOrigin(OriginEmbedded)
-	_ = touchMeta()
+	// The seed was built into the binary, possibly long ago: it was never
+	// confirmed against the feed, so drop any freshness stamp left by a
+	// previous cache and let the next automatic check run.
+	_ = os.Remove(metaPath())
 	return true, nil
 }
 
@@ -463,10 +472,6 @@ func (l *Latest) Apply() error {
 // Safe to call more than once.
 func (l *Latest) Discard() { os.RemoveAll(l.staging) }
 
-// MarkChecked records (in index.meta) when the cached index was last
-// confirmed current against the feed, without re-downloading it.
-func MarkChecked() error { return touchMeta() }
-
 // IsNewer reports whether index version a is newer than b. Index versions
 // are dotted numbers (e.g. 2024.03.01.1), compared part by part
 // numerically; a non-numeric part falls back to a string comparison, and
@@ -627,12 +632,260 @@ func extractTarGzReader(r io.Reader, destDir string) error {
 	return nil
 }
 
+// --- freshness check (search/install/upgrade/update) -----------------------
+
+// CheckTTL is how long a cached index is trusted after it was last
+// downloaded from, or confirmed current against, the feed. Within it the
+// automatic check Prepare runs (SyncAsk) is skipped entirely — no feed
+// call, no prompt. --sync and Update ignore it.
+const CheckTTL = time.Hour
+
+// SyncMode is what Prepare does about a possibly newer index on the feed
+// (from search/install/upgrade's --sync/--no-sync flags).
+type SyncMode int
+
+const (
+	// SyncAsk checks only once the cache is older than CheckTTL; then
+	// install/upgrade prompt when stdin is a terminal, and otherwise (and
+	// always, for search) keep the cached index and print a note (never
+	// hangs a script).
+	SyncAsk SyncMode = iota
+	// SyncAlways checks regardless of the TTL and updates the index first
+	// without asking (--sync).
+	SyncAlways
+	// SyncNever uses the cached index without checking the feed (--no-sync).
+	SyncNever
+)
+
+// Prepare runs before search/install/upgrade act: it makes sure an index
+// is cached and then, unless the cache is younger than CheckTTL (or mode
+// is SyncNever), asks the feed for its latest index version — a metadata
+// query, no download — and compares it to the cached one. Within the TTL
+// nothing is checked or printed: the cache is used as-is. SyncAlways
+// checks regardless of the TTL.
+//
+// When the feed's index is newer, what happens depends on mutating:
+// install/upgrade (true) download and swap it in once the update is
+// accepted — per mode, and whether the user can be prompted — and then
+// print the new index's plugin list; search (false) never prompts, just
+// notes that a newer index exists and uses the cache (unless SyncAlways).
+// Otherwise nothing is downloaded and the cached copy is used. Failing to
+// reach the feed is not an error: the cached index is used and a warning
+// says so. The returned error means no index is available at all.
+func Prepare(mode SyncMode, mutating bool) error {
+	if !HasCache() && !HasEmbedded() {
+		// Nothing cached and nothing embedded to seed from: the first
+		// download is the latest by definition, so there's nothing newer
+		// to check for afterwards.
+		sp := ui.StartSpinner("Downloading plugin index...")
+		err := EnsureCache()
+		sp.Stop()
+		if err != nil {
+			return err
+		}
+		v, _ := CachedVersion()
+		ui.Successf("Downloaded plugin index %s.", v)
+		return nil
+	}
+	if err := EnsureCache(); err != nil {
+		return err
+	}
+	cached, _ := CachedVersion()
+	if mode == SyncNever {
+		ui.Infof("Using cached plugin index %s (--no-sync).", cached)
+		return nil
+	}
+	if mode == SyncAsk && IsFresh(CheckTTL) {
+		return nil
+	}
+
+	sp := ui.StartSpinner("Checking for a newer plugin index...")
+	latest, err := LatestVersion()
+	sp.Stop()
+	if err != nil {
+		ui.Warnf("could not check the feed for a newer plugin index: %v", err)
+		ui.Infof("Using cached plugin index %s.", cached)
+		return nil
+	}
+	if !IsNewer(latest, cached) {
+		_ = MarkChecked()
+		ui.Successf("Plugin index %s is already up to date.", cached)
+		return nil
+	}
+
+	update := false
+	switch {
+	case mode == SyncAlways:
+		update = true
+	case mutating && ui.StdinIsTerminal():
+		update = ui.Confirm(fmt.Sprintf(
+			"A newer plugin index is available (%s %s %s). Update the index first?", cached, ui.Err.Arrow(), latest))
+	default: // search, or no terminal to prompt on
+		ui.Notef("a newer plugin index is available (%s -> %s); using the cached one.", cached, latest)
+		ui.Notef("run `dongle update`, or pass --sync, to update it first.")
+		return nil
+	}
+	if !update {
+		ui.Infof("Using cached plugin index %s.", cached)
+		return nil
+	}
+
+	if err := downloadWithSpinner(latest); err != nil {
+		ui.Warnf("could not update the plugin index: %v", err)
+		ui.Infof("Using cached plugin index %s.", cached)
+		return nil
+	}
+	cur, _ := CachedVersion()
+	ui.Successf("Updated plugin index %s %s %s.", cached, ui.Err.Arrow(), cur)
+	if mutating {
+		WriteSummary(os.Stderr, ui.Err, cached)
+		fmt.Fprintln(os.Stderr)
+	}
+	return nil
+}
+
+// Update brings the cached index up to date with the feed, ignoring
+// CheckTTL (`dongle update`): it asks the feed for the latest index
+// version (metadata only), downloads the archive only when that version
+// is newer than the cached one, and then prints the index version and the
+// plugins it lists. On failure the existing cache stays in use — or, with
+// nothing cached, the embedded seed is extracted — and the error is
+// returned (already reported), since the command's one job didn't happen.
+func Update() error {
+	prev, _ := CachedVersion()
+	sp := ui.StartSpinner("Checking for a newer plugin index...")
+	v, err := LatestVersion()
+	sp.Stop()
+	if err != nil {
+		return updateFailed(err)
+	}
+
+	if HasCache() && !IsNewer(v, prev) {
+		_ = MarkChecked()
+		ui.Successf("Plugin index %s is already up to date.", prev)
+		WriteSummary(os.Stdout, ui.Out, prev)
+		return nil
+	}
+
+	if err := downloadWithSpinner(v); err != nil {
+		return updateFailed(err)
+	}
+	cur, _ := CachedVersion()
+	switch {
+	case prev == "" || prev == cur:
+		ui.Successf("Plugin index %s is the latest.", cur)
+	default:
+		ui.Successf("Updated plugin index %s %s %s.", prev, ui.Err.Arrow(), cur)
+	}
+	WriteSummary(os.Stdout, ui.Out, prev)
+	return nil
+}
+
+// updateFailed reports Update's failure, falling back to the embedded
+// seed when nothing is cached, and returns err.
+func updateFailed(err error) error {
+	ui.Errorf("could not update the plugin index: %v", err)
+	if !HasCache() {
+		if _, serr := SeedEmbedded(); serr != nil {
+			ui.Warnf("could not seed the embedded plugin index: %v", serr)
+		}
+	}
+	if v, ok := CachedVersion(); ok {
+		ui.Infof("Still using plugin index %s.", v)
+	}
+	return err
+}
+
+// downloadWithSpinner downloads index version v from the feed and
+// installs it as the cache, under a spinner.
+func downloadWithSpinner(v string) error {
+	sp := ui.StartSpinner(fmt.Sprintf("Downloading plugin index %s...", v))
+	defer sp.Stop()
+	latest, err := Fetch(v)
+	if err != nil {
+		return err
+	}
+	return latest.Apply()
+}
+
+// MarkChecked records (in index.meta) when the cached index was last
+// confirmed current against the feed, without re-downloading it.
+func MarkChecked() error { return touchMeta() }
+
+// IsFresh reports whether the cached index was refreshed from (or
+// confirmed current against) the feed less than ttl ago. A cache with no
+// freshness stamp — never checked, or seeded from the embedded copy — is
+// never fresh.
+func IsFresh(ttl time.Duration) bool {
+	age, err := cacheAge()
+	return err == nil && age >= 0 && age < ttl
+}
+
+// cacheAge is how long ago index.meta was stamped by touchMeta.
+func cacheAge() (time.Duration, error) {
+	fi, err := os.Stat(metaPath())
+	if err != nil {
+		return 0, err
+	}
+	return time.Since(fi.ModTime()), nil
+}
+
 func touchMeta() error {
 	now := time.Now()
 	if err := os.WriteFile(metaPath(), []byte(now.Format(time.RFC3339)), 0o644); err != nil {
 		return err
 	}
 	return os.Chtimes(metaPath(), now, now)
+}
+
+// WriteSummary prints the cached index's version (noting what it was
+// updated from, when prev differs) and every plugin it lists, marking the
+// installed ones and those with an upgrade available.
+// p is the palette for w's stream.
+func WriteSummary(w io.Writer, p ui.Palette, prev string) {
+	cur, _ := CachedVersion()
+	note := ""
+	switch {
+	case prev == "":
+	case prev == cur:
+		note = "(already the latest)"
+	default:
+		note = "(updated from " + prev + ")"
+	}
+
+	var t ui.Table
+	t.Style(0, p.Bold)
+	// The note is always the last cell (never padded), so it can be styled
+	// per row without skewing alignment.
+	t.Row(0, "index", cur, p.Dim(note))
+	entries, err := List()
+	if err != nil || len(entries) == 0 {
+		t.Heading(p.Bold("plugins:") + "  none")
+		t.Write(w)
+		return
+	}
+	st, err := state.Load()
+	if err != nil {
+		st = &state.State{}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	t.Heading(p.Bold("plugins:"))
+	for _, e := range entries {
+		t.Row(2, e.Name, strings.TrimPrefix(e.Version, "v"), installedNote(p, st, e))
+	}
+	t.Write(w)
+}
+
+// installedNote describes a listed plugin's local install state.
+func installedNote(p ui.Palette, st *state.State, m Manifest) string {
+	inst, ok := st.Plugins[m.Name]
+	if !ok {
+		return ""
+	}
+	if cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion); err == nil && cmp > 0 {
+		return p.Yellow("installed " + inst.ActiveVersion + ", upgrade available")
+	}
+	return p.Green("installed")
 }
 
 // --- lookups ------------------------------------------------------------------

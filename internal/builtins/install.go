@@ -18,9 +18,9 @@ import (
 
 // Install resolves name from the index and installs it. mode decides what
 // happens when the feed has a newer index than the cache (see
-// prepareIndex). An already-installed plugin is left alone: Install
+// index.Prepare). An already-installed plugin is left alone: Install
 // reports its version, points at `upgrade`, and succeeds.
-func Install(hostVersion, protocol, name string, mode SyncMode) int {
+func Install(hostVersion, protocol, name string, mode index.SyncMode) int {
 	st, err := state.Load()
 	if err != nil {
 		ui.Errorf("%v", err)
@@ -31,7 +31,7 @@ func Install(hostVersion, protocol, name string, mode SyncMode) int {
 		return 0
 	}
 
-	if err := prepareIndex(mode, true); err != nil {
+	if err := index.Prepare(mode, true); err != nil {
 		ui.Errorf("%v", err)
 		return 1
 	}

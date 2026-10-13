@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andreimladin/dongle/internal/builtins"
+	"github.com/andreimladin/dongle/internal/index"
 )
 
 // The plugin-management builtins live directly at the root (there is no
@@ -43,15 +44,15 @@ func addSyncFlags(cmd *cobra.Command) {
 	cmd.MarkFlagsMutuallyExclusive("sync", "no-sync")
 }
 
-// syncMode maps cmd's --sync/--no-sync flags to a builtins.SyncMode.
-func syncMode(cmd *cobra.Command) builtins.SyncMode {
+// syncMode maps cmd's --sync/--no-sync flags to a index.SyncMode.
+func syncMode(cmd *cobra.Command) index.SyncMode {
 	if on, _ := cmd.Flags().GetBool("sync"); on {
-		return builtins.SyncAlways
+		return index.SyncAlways
 	}
 	if off, _ := cmd.Flags().GetBool("no-sync"); off {
-		return builtins.SyncNever
+		return index.SyncNever
 	}
-	return builtins.SyncAsk
+	return index.SyncAsk
 }
 
 func init() {
