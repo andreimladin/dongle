@@ -13,6 +13,16 @@ import (
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
+// runner runs the prepared plugin process; tests swap in a fake to observe
+// the exec without launching anything.
+var runner processRunner = execRunner{}
+
+type processRunner interface{ Run(cmd *exec.Cmd) error }
+
+type execRunner struct{}
+
+func (execRunner) Run(cmd *exec.Cmd) error { return cmd.Run() }
+
 // IsInstalled reports whether a plugin named name is registered in local
 // state — the test the host uses to decide whether a non-builtin command
 // name is a plugin invocation or an unsupported command.
@@ -62,7 +72,7 @@ func Run(hostVersion, protocol, name string, args []string) int {
 		"DONGLE_PLUGIN_NAME="+name,
 	)
 
-	if err := cmd.Run(); err != nil {
+	if err := runner.Run(cmd); err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode() // plugin ran and chose to fail — pass its code through
 		}
