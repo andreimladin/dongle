@@ -22,8 +22,14 @@ go vet ./...                                      # static checks
 sh demo.sh                                        # full end-to-end walkthrough
 ```
 
-There are no `*_test.go` files in the repo yet; `go test ./...` currently reports
-no tests to run.
+`go test ./...` runs unit and orchestration tests. External dependencies sit
+behind small seams swapped for fakes in tests: `internal/azcli.Runner` (the `az`
+CLI, used by `internal/index` and `internal/builtins`), `index.embeddedIndex` /
+`index.prompt`, `builtins.payload` (first-run embedded payload),
+`dispatch.runner` (plugin exec) and `bootstrap.payloadFS`. Tests use
+`internal/testutil.Isolate` (temp data dir, empty `PATH`, so no real `az` or feed)
+and `testutil.Capture` (stdout/stderr). The `-tags embed` bootstrap code has its
+own tests: `go test -tags embed ./internal/bootstrap`.
 
 `demo.sh` builds the host and the sample `deploy` plugin, stages a plugin
 "release" dir (binary + `plugin.json`), then runs through

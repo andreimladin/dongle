@@ -34,6 +34,10 @@ import (
 //go:embed all:embedded
 var embeddedFS embed.FS
 
+// payloadFS is what everything below reads the staged payload from:
+// embeddedFS in production, a fake filesystem in tests.
+var payloadFS fs.FS = embeddedFS
+
 // embeddedManifest is the shape of embedded/manifest.json: the plugin
 // defaults staged for this build, plus the version of the index archive
 // staged alongside them as embedded/index.tar.gz (see EmbeddedIndex).
@@ -53,7 +57,7 @@ type embeddedIndexMeta struct {
 // nothing was staged for this build (a plain `go build -tags embed` with
 // an empty internal/bootstrap/embedded) or the manifest is invalid.
 func loadManifest() (m embeddedManifest, ok bool) {
-	b, err := fs.ReadFile(embeddedFS, "embedded/manifest.json")
+	b, err := fs.ReadFile(payloadFS, "embedded/manifest.json")
 	if err != nil {
 		return embeddedManifest{}, false // nothing staged for this build
 	}
@@ -123,7 +127,7 @@ func EmbeddedIndex() (archive []byte, version string, ok bool) {
 	if !mok || manifest.Index.Version == "" {
 		return nil, "", false
 	}
-	data, err := fs.ReadFile(embeddedFS, "embedded/index.tar.gz")
+	data, err := fs.ReadFile(payloadFS, "embedded/index.tar.gz")
 	if err != nil {
 		return nil, "", false
 	}
@@ -134,7 +138,7 @@ func EmbeddedIndex() (archive []byte, version string, ok bool) {
 // on-disk location and records it in st.Plugins; the caller saves st.
 func installEmbeddedDefault(st *state.State, d Default) error {
 	// embed.FS paths are always "/"-separated regardless of host OS.
-	data, err := fs.ReadFile(embeddedFS, path.Join("embedded", d.File))
+	data, err := fs.ReadFile(payloadFS, path.Join("embedded", d.File))
 	if err != nil {
 		return err
 	}

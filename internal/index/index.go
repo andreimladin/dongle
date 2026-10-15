@@ -36,7 +36,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -46,6 +45,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/andreimladin/dongle/internal/azcli"
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/state"
@@ -75,6 +75,31 @@ func SetDefaults(org, project, feed, pkg string) {
 	injected.indexFeed = feed
 	injected.indexPackage = pkg
 }
+
+// Dependency seams: the production implementations below, swapped for
+// fakes in tests so the refresh logic runs without a real `az`, an
+// embedded payload, or a terminal to prompt on.
+var (
+	// az runs the Azure CLI for feed queries and index downloads.
+	az azcli.Runner = azcli.System{}
+	// embeddedIndex returns the seed index baked into this binary, if any.
+	embeddedIndex = bootstrap.EmbeddedIndex
+	// prompt asks the user whether to update the index (see Prepare).
+	prompt prompter = terminalPrompter{}
+)
+
+// prompter asks the user a yes/no question, when one can be asked at all.
+type prompter interface {
+	// CanPrompt reports whether there's a terminal to prompt on.
+	CanPrompt() bool
+	Confirm(question string) bool
+}
+
+// terminalPrompter prompts on the controlling terminal (see ui.Confirm).
+type terminalPrompter struct{}
+
+func (terminalPrompter) CanPrompt() bool       { return ui.StdinIsTerminal() }
+func (terminalPrompter) Confirm(q string) bool { return ui.Confirm(q) }
 
 func indexOrg() string {
 	if v := os.Getenv("DONGLE_INDEX_ORG"); v != "" {
@@ -171,7 +196,7 @@ type Selector struct {
 // HasEmbedded reports whether this binary carries a seed index (built with
 // -tags embed and a staged index archive).
 func HasEmbedded() bool {
-	_, _, ok := bootstrap.EmbeddedIndex()
+	_, _, ok := embeddedIndex()
 	return ok
 }
 
@@ -223,7 +248,7 @@ func seedFromEmbedded() bool {
 // cache then just reads as fetched. A seeded cache always reads as stale
 // (see IsFresh), so the next automatic check still asks the feed.
 func extractEmbedded() (ok bool, err error) {
-	archive, version, embedded := bootstrap.EmbeddedIndex()
+	archive, version, embedded := embeddedIndex()
 	if !embedded {
 		return false, nil
 	}
@@ -327,7 +352,7 @@ func download() error {
 // TODO: verify the Packaging/Packages area+resource names and api-version
 // against the az CLI / azure-devops extension version you deploy with.
 func LatestVersion() (string, error) {
-	if _, err := exec.LookPath("az"); err != nil {
+	if err := az.LookPath(); err != nil {
 		return "", errAzMissing
 	}
 	route := []string{"feedId=" + indexFeed()}
@@ -351,10 +376,7 @@ func LatestVersion() (string, error) {
 		"--output", "json",
 	)
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command("az", args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := az.Run(args, &stdout, &stderr); err != nil {
 		return "", AzError("az query latest "+indexPackage()+" version", err, stderr.Bytes())
 	}
 	return parseLatestVersion(stdout.Bytes(), indexPackage())
@@ -415,7 +437,7 @@ type Latest struct {
 // into a staging dir under the data dir (same filesystem, so Apply's swap
 // is a rename). The caller must Apply or Discard the result.
 func Fetch(version string) (*Latest, error) {
-	if _, err := exec.LookPath("az"); err != nil {
+	if err := az.LookPath(); err != nil {
 		return nil, errAzMissing
 	}
 	stagingRoot := filepath.Join(state.DataDir(), ".staging")
@@ -527,9 +549,7 @@ func downloadArchive(destDir, version string) (string, error) {
 	// az's stderr is captured rather than inherited so it can't garble a
 	// spinner; it's surfaced in the error if the download fails.
 	var stderr bytes.Buffer
-	cmd := exec.Command("az", args...)
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := az.Run(args, nil, &stderr); err != nil {
 		return "", AzError("az download "+indexPackage()+"@"+version, err, stderr.Bytes())
 	}
 
@@ -717,8 +737,8 @@ func Prepare(mode SyncMode, mutating bool) error {
 	switch {
 	case mode == SyncAlways:
 		update = true
-	case mutating && ui.StdinIsTerminal():
-		update = ui.Confirm(fmt.Sprintf(
+	case mutating && prompt.CanPrompt():
+		update = prompt.Confirm(fmt.Sprintf(
 			"A newer plugin index is available (%s %s %s). Update the index first?", cached, ui.Err.Arrow(), latest))
 	default: // search, or no terminal to prompt on
 		ui.Notef("a newer plugin index is available (%s -> %s); using the cached one.", cached, latest)

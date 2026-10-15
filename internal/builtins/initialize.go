@@ -17,9 +17,9 @@ import (
 // otherwise) so the user knows why the first run takes a moment, without
 // touching the command's stdout.
 func Initialize() {
-	seedIndex := !index.HasCache() && index.HasEmbedded()
+	seedIndex := !index.HasCache() && payload.HasIndex()
 	sp := ui.StartSpinner("Initializing dongle...")
-	defaults := bootstrap.PendingDefaults()
+	defaults := payload.PendingDefaults()
 	sp.Stop()
 	if !seedIndex && len(defaults) == 0 {
 		return
@@ -27,7 +27,7 @@ func Initialize() {
 
 	if seedIndex {
 		sp := ui.StartSpinner("Initializing plugin index...")
-		if _, err := index.SeedEmbedded(); err != nil {
+		if err := payload.SeedIndex(); err != nil {
 			sp.Stop()
 			ui.Warnf("could not initialize the embedded plugin index: %v", err)
 		} else {
@@ -37,7 +37,7 @@ func Initialize() {
 	}
 	for _, d := range defaults {
 		sp := ui.StartSpinner("Installing " + d.Name + "...")
-		if err := bootstrap.InstallDefault(d); err != nil {
+		if err := payload.InstallDefault(d); err != nil {
 			sp.Stop()
 			ui.Warnf("installing embedded default %s: %v", d.Name, err)
 			continue
@@ -45,9 +45,38 @@ func Initialize() {
 		sp.Success("Installed %s %s", d.Name, d.Version)
 	}
 	if len(defaults) > 0 {
-		if err := bootstrap.MarkDefaultsBootstrapped(); err != nil {
+		if err := payload.MarkDefaultsBootstrapped(); err != nil {
 			ui.Warnf("could not record embedded defaults bootstrap: %v", err)
 		}
 	}
 	ui.Successf("Initialization complete.")
 }
+
+// embeddedPayload is what Initialize unpacks on a batteries-included
+// binary's first run: the seed index (via internal/index) and the default
+// plugins (via internal/bootstrap). Tests swap in a fake.
+type embeddedPayload interface {
+	HasIndex() bool
+	SeedIndex() error
+	PendingDefaults() []bootstrap.Default
+	InstallDefault(bootstrap.Default) error
+	MarkDefaultsBootstrapped() error
+}
+
+var payload embeddedPayload = builtPayload{}
+
+// builtPayload is the payload actually compiled into this binary.
+type builtPayload struct{}
+
+func (builtPayload) HasIndex() bool { return index.HasEmbedded() }
+
+func (builtPayload) SeedIndex() error {
+	_, err := index.SeedEmbedded()
+	return err
+}
+
+func (builtPayload) PendingDefaults() []bootstrap.Default { return bootstrap.PendingDefaults() }
+
+func (builtPayload) InstallDefault(d bootstrap.Default) error { return bootstrap.InstallDefault(d) }
+
+func (builtPayload) MarkDefaultsBootstrapped() error { return bootstrap.MarkDefaultsBootstrapped() }
