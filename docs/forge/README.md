@@ -2,23 +2,23 @@
 
 <!-- TODO: Forge base URL — this folder is the source of the Forge docs site:
      <TODO-FORGE-BASE-URL>. Keep page paths stable; the index repo's
-     README.md and CONTRIBUTING.md link to them. -->
+     README.md, CONTRIBUTING.md and docs/ link to them.
+     TODO: index repo URL — replace <TODO-INDEX-REPO-URL> on these pages. -->
 
-`dongle` is a single host CLI that other CLIs plug into. You install a plugin
-once with `dongle install <name>`, then run it as `dongle <name> [args...]`.
+These pages are for people who **use** dongle. Documentation for plugin
+owners who want to add their CLI to dongle (onboarding steps and the
+manifest reference) lives in the plugin index repo:
+[README.md](<TODO-INDEX-REPO-URL>/README.md) and
+[CONTRIBUTING.md](<TODO-INDEX-REPO-URL>/CONTRIBUTING.md). Pages needed by
+both audiences live here, and the index repo links to them.
 
 | section | page | read it when you want to… |
 |---|---|---|
+| **Welcome** | [Welcome to dongle](welcome.md) | know what dongle is and where to start |
 | **Getting started** | [Getting started](getting-started/index.md) | prerequisites, installation and first run |
 | **How to** | [Use dongle commands](how-to/use-commands.md) | find, install, upgrade and remove plugins |
-| | [Plug in your CLI](how-to/plug-in-your-cli.md) | make your own CLI available through dongle |
-| | ↳ [Add your manifest](how-to/plug-in-your-cli/add-your-manifest.md) | submit your plugin to the index |
-| | ↳ [Validate your manifest](how-to/plug-in-your-cli/validate-your-manifest.md) | check your manifest before opening a PR |
-| | ↳ [Run your plugin locally](how-to/plug-in-your-cli/run-locally.md) | test your plugin through dongle before opening a PR |
 | **Explanation** | [How dongle works](explanation/design.md) | understand what happens behind the scenes |
 | | [Concepts](explanation/concepts.md) | learn what a plugin, a manifest and the index are |
 | **Troubleshooting** | [Troubleshooting](troubleshooting/troubleshooting.md) | get help when something goes wrong |
-| **Reference** | [Command reference](reference/commands.md) | look up every command, flag and exit code |
-| | [Manifest reference](reference/manifest-reference.md) | look up every manifest field (the authoritative spec) |
-| | [1es-cli-validate-manifest](reference/tools/1es-cli-validate-manifest.md) | look up the validator's usage and checks |
+| **Reference** | [Command reference](reference/index.md) | look up every command, flag and exit code |
 | **Releases** | [Release notes](releases/release-notes.md) | see what changed in each release |

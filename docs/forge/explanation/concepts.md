@@ -48,8 +48,8 @@ Manifests are reviewed and validated before they're accepted, so every
 entry users see has been checked.
 
 The exact fields and rules are in the
-[Manifest reference](../reference/manifest-reference.md). That page is the
-specification.
+[Manifest reference](<TODO-INDEX-REPO-URL>/README.md#manifest-reference) in
+the index repo. That page is the specification.
 
 ## What is the index
 
@@ -57,7 +57,8 @@ The **index** is the catalog of all plugins: the collection of every
 manifest, one file per plugin.
 
 - It's **maintained** in a git repo (the index repo), where plugin owners
-  add or update their manifest through pull requests.
+  add or update their manifest through pull requests (see its
+  [CONTRIBUTING.md](<TODO-INDEX-REPO-URL>/CONTRIBUTING.md)).
 - It's **released** by the dongle team as a versioned package
   (`dongle-index`). A merged manifest reaches users only after the next
   index release.
