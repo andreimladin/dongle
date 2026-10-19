@@ -1,4 +1,49 @@
-# dongle v1.0.1
+# dongle release notes
+
+## dongle v1.0.1
+
+**Fewer index checks, faster commands.**
+
+dongle now remembers when it last checked the plugin index and skips the
+check for an hour afterwards.
+
+### What changed
+
+- **The plugin index check is cached for 1 hour.** Before `dongle search`,
+  `dongle install` and `dongle upgrade` run, dongle asks the feed whether a
+  newer plugin index exists. It now does that at most once an hour: after
+  the index is downloaded, or confirmed to be the latest, the commands that
+  follow within the hour use your local index straight away, with no feed
+  call and no prompt.
+- **`dongle search` never prompts.** When a newer index is available,
+  `search` uses the one you have and prints a note suggesting
+  `dongle update` or `--sync`. Only `install` and `upgrade` ask whether to
+  update the index first.
+
+### What it means for you
+
+- **Faster, quieter commands.** Running several `search`, `install` or
+  `upgrade` commands in a row no longer contacts the feed every time, and
+  you won't see `Checking for a newer plugin index...` on each one.
+- **A new index can take up to an hour to show up.** If an index was
+  released since dongle last checked, you may not see its plugins or
+  versions until the hour is up. To pick it up right away, run
+  `dongle update`, or add `--sync` to `search`, `install` or `upgrade`.
+  Both always check the feed, whatever the time since the last check.
+- **Saying no isn't remembered.** If you decline the `Update the index
+  first?` prompt, the hour doesn't start: the next `install` or `upgrade`
+  checks and asks again. The same goes for a check that can't reach the
+  feed (for example when offline), so you'll see the warning on each command
+  until the check succeeds.
+- **`--no-sync` is unchanged.** It still skips the check entirely and uses
+  your local index.
+- **First run after installing.** The index built into dongle has never
+  been checked, so the first `search`, `install` or `upgrade` checks the
+  feed.
+
+Details are in the [command reference](../reference/index.md#index-sync-flags).
+
+## dongle v1.0.0
 
 **One CLI, plug in the rest.**
 
@@ -10,7 +55,7 @@ location and update process separately.
 This is the first release of dongle, built for everyone who uses those
 tools day to day.
 
-## What you can do
+### What you can do
 
 - **Install, remove and upgrade plugins** from one central plugin index:
   `dongle install <name>`, `dongle remove <name>`, and `dongle upgrade`
@@ -39,7 +84,7 @@ dongle upgrade           # upgrade everything installed
 dongle --version         # dongle, index and plugin versions
 ```
 
-## Getting started
+### Getting started
 
 1. Install the Azure CLI, add its DevOps extension
    (`az extension add --name azure-devops`), and sign in with `az login`.
@@ -50,12 +95,12 @@ dongle --version         # dongle, index and plugin versions
 
 The full walkthrough is in [Getting started](../getting-started/index.md).
 
-## Want to add your own CLI?
+### Want to add your own CLI?
 
 Plugin authors can make their CLI available through dongle. See the plugin
 index repo's [CONTRIBUTING.md](<TODO-INDEX-REPO-URL>/CONTRIBUTING.md).
 
-## Good to know
+### Good to know
 
 - **The Azure CLI is required** for anything that downloads from the feed:
   `dongle install`, `dongle upgrade` and `dongle update`. Running installed
