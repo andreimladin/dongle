@@ -22,13 +22,17 @@ import (
 	"github.com/andreimladin/dongle/internal/index"
 )
 
-// packageExists attempts to download packageName@version from feed into a
+// packageExists is the existence check checkExistence calls; a variable so
+// tests can stub out the az CLI.
+var packageExists = downloadPackage
+
+// downloadPackage attempts to download packageName@version from feed into a
 // throwaway temp dir, deleted before returning. feed carries the
 // organization/project/feed coordinates straight from the manifest that
 // declared the package — this never consults a global/configured feed. A
 // nil return means the download succeeded (the package exists and is
 // fetchable); a non-nil return carries the az CLI's stderr.
-func packageExists(feed index.Feed, packageName, version string) error {
+func downloadPackage(feed index.Feed, packageName, version string) error {
 	dest, err := os.MkdirTemp("", "validate-manifest-*")
 	if err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)

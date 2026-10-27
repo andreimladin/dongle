@@ -21,6 +21,8 @@ feed:
 platforms:
   - selector: { os: darwin, arch: arm64 }
     package: dongle-deploy_2.3.1_darwin_arm64
+  - selector: { os: windows, arch: amd64 }
+    package: dongle-deploy_2.3.1_windows_amd64
   - selector: { os: linux, arch: amd64 }
     package: dongle-deploy_2.3.1_linux_amd64
 support:

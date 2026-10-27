@@ -74,7 +74,7 @@ explained in [Concepts](<TODO-FORGE-BASE-URL>/explanation/concepts#what-is-a-man
 | [`feed.feed`](#feedfeed) | **required** | string | `dongle-plugins` |
 | [`feed.packageType`](#feedpackagetype) | **required** | string | `upack` |
 | [`feed.packageName`](#feedpackagename) | **required** | string | `dongle-deploy` |
-| [`platforms`](#platforms) | **required**, at least 1 entry | list | |
+| [`platforms`](#platforms) | **required**, ≥1 entry each for macOS, Windows, Linux | list | |
 | [`platforms[].selector.os`](#platformsselector) | **required** per entry | string | `darwin` |
 | [`platforms[].selector.arch`](#platformsselector) | **required** per entry | string | `arm64` |
 | [`platforms[].package`](#platformspackage) | **required** per entry | string | `dongle-deploy_2.3.1_darwin_arm64` |
@@ -198,14 +198,17 @@ values are what get fetched.
 
 #### `platforms`
 
-**Required, list with at least one entry** (`platforms: at least one
-platform entry is required`). One entry per OS/architecture you have
+**Required, list with at least one entry per mandatory OS.** One entry
+per OS/architecture you have
 published a package for. dongle picks the entry whose `os` and `arch`
 exactly match the user's machine. If none matches, the install fails with
 `<name> <version> has no build for <os>/<arch>`.
 
-**Platform policy:** a plugin must support **macOS, Windows, or both**.
-Linux entries are optional, and a Linux-only plugin isn't accepted.
+**Platform policy:** a plugin must provide executables for **macOS,
+Windows and Linux**: all three are mandatory, with at least one entry each
+(`selector.os` `darwin`, `windows` and `linux`; which architectures you
+build is up to you). CI enforces this: a manifest missing one fails with
+`manifest <name>.yaml is missing a <OS> platform entry`.
 
 ##### `platforms[].selector`
 
@@ -218,8 +221,8 @@ Linux entries are optional, and a Linux-only plugin isn't accepted.
 | macOS, Intel | `darwin` | `amd64` |
 | Windows, x64 | `windows` | `amd64` |
 | Windows, ARM64 | `windows` | `arm64` |
-| Linux, x64 (optional) | `linux` | `amd64` |
-| Linux, ARM64 (optional) | `linux` | `arm64` |
+| Linux, x64 | `linux` | `amd64` |
+| Linux, ARM64 | `linux` | `arm64` |
 
 Validation only checks that `os` and `arch` are non-empty. Values like
 `macos`, `win`, `x86_64`, `aarch64` or `Darwin` pass CI but never match any
@@ -314,7 +317,7 @@ feed:
   # REQUIRED. Base package name (a label; not downloaded).
   packageName: dongle-deploy
 
-# REQUIRED. At least one entry; macOS and/or Windows required, Linux optional.
+# REQUIRED. At least one entry each for macOS, Windows AND Linux.
 platforms:
   # selector: Go GOOS/GOARCH spelling, exact match against the user's machine.
   # package: Universal Package for this os/arch, at version 2.3.1,
@@ -323,6 +326,8 @@ platforms:
     package: dongle-deploy_2.3.1_darwin_arm64
   - selector: { os: windows, arch: amd64 }
     package: dongle-deploy_2.3.1_windows_amd64
+  - selector: { os: linux, arch: amd64 }
+    package: dongle-deploy_2.3.1_linux_amd64
 
 # REQUIRED. Shown by `dongle support deploy`.
 support:
@@ -338,10 +343,11 @@ support:
 
 CI validates every manifest your PR changes: strict parsing (no unknown
 fields), required fields, `name` = filename, a valid `version`, a
-parseable `requires.host`, and the existence of every
+parseable `requires.host`, the [platform policy](#platforms) (at least
+one `darwin`, `windows` and `linux` entry), and the existence of every
 `platforms[].package` in `feed`. Not checked: `requires.protocol`,
-`feed.packageType` and `selector` values, the package's file count and
-contents, URLs, and the platform policy (that's checked in review).
+`feed.packageType` and `selector.arch` values, the package's file count and
+contents, and URLs.
 
 ## How the index is released
 

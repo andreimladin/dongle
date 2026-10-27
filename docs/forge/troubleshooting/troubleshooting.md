@@ -27,14 +27,14 @@ place, then look for your message below.
 
 | message | what to do |
 |---|---|
-| `dongle: command not found` / `'dongle' is not recognized` | open a new terminal. If it still fails, check that dongle is installed in Self Service (macOS) or Company Portal (Windows), and reinstall it if needed |
+| `dongle: command not found` / `'dongle' is not recognized` | open a new terminal. If it still fails, check that dongle is installed in Self Service (macOS) or Company Portal (Windows), and reinstall it if needed. On Linux, check that the `dongle` executable is on your `PATH` and executable (`chmod +x`); see [Installation](../getting-started/index.md#linux) |
 | `the Azure CLI is required: install it and run az extension add --name azure-devops` | install the Azure CLI and the extension ([Prerequisites](../getting-started/index.md#step-1--prerequisites)) |
 | an `az ...` error mentioning 401, 403, login or authorization | run `az login` with an account that can read the feed |
 | `warning: could not check the feed for a newer plugin index` | the feed couldn't be reached; dongle continued with your local index. Check your network and `az login` |
 | `command "X" is not supported` | `X` isn't a builtin or an installed plugin. Check `dongle search`, then `dongle install X` |
 | `no plugin named X in the index` | check the spelling. If the plugin was added recently, run `dongle update`; if it's still missing, it hasn't been released in the index yet |
-| `X requires host >=… but this host is …` | the plugin needs a newer dongle. Update dongle from Self Service (macOS) or Company Portal (Windows) |
-| `X … has no build for <os>/<arch>` | the plugin doesn't support your platform. Contact its owners (`dongle support X`) |
+| `X requires host >=… but this host is …` | the plugin needs a newer dongle. Update dongle from Self Service (macOS) or Company Portal (Windows), or on Linux download the newer executable ([Installation](../getting-started/index.md#linux)) |
+| `X … has no build for <os>/<arch>` | every plugin ships for macOS, Windows and Linux, but not necessarily for every CPU type (for example ARM64). Contact its owners (`dongle support X`) |
 | `installed X … is newer than the index …; not downgrading` | expected. To force the index's version: `dongle remove X`, then `dongle install X` |
 | a script hangs or doesn't update the index | in scripts, pass `--sync` or `--no-sync` to `search`/`install`/`upgrade` |
 

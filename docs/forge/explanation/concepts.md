@@ -24,8 +24,9 @@ Each plugin has:
 
 - a **name**, which is the command users type;
 - its own **version**, released on its own schedule;
-- **one build per platform** it supports (for example macOS on Apple
-  silicon, Windows x64), each stored as a package in a feed;
+- **one build per platform**: every plugin ships for macOS, Windows and
+  Linux (for example macOS on Apple silicon, Windows x64, Linux x64), each
+  build stored as a package in a feed;
 - a **support** entry pointing users to its owners.
 
 dongle's own commands are *builtins*, not plugins.
