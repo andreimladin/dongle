@@ -59,9 +59,8 @@ There's no app portal on Linux: download the dongle executable from the
 dongle feed with the Azure CLI you set up in Step 1, then put it on your
 `PATH`.
 
-<!-- TODO: fill in the real Azure DevOps organization and host feed name
-     (HOST_FEED in the dongle repo's azure-pipelines-release.yml), and the
-     latest dongle version. -->
+<!-- TODO: fill in the real Azure DevOps organization, project and host
+     feed name (HOST_FEED in the dongle repo's azure-pipelines-release.yml). -->
 
 1. Find your CPU architecture. `uname -m` prints `x86_64` on amd64 and
    `aarch64` (or `arm64`) on arm64. This sets `ARCH` for the next steps:
@@ -74,15 +73,18 @@ dongle feed with the Azure CLI you set up in Step 1, then put it on your
    esac
    ```
 
-2. Download the matching build, `dongle-linux-amd64` or
-   `dongle-linux-arm64`:
+2. Download the latest release of the matching build, `dongle-linux-amd64`
+   or `dongle-linux-arm64`. `--version "*"` always fetches the newest
+   version in the feed, so you never need to look the version up:
 
    ```sh
    az artifacts universal download \
      --organization https://dev.azure.com/<TODO-ORG> \
+     --project <TODO-PROJECT> \
+     --scope project \
      --feed <TODO-HOST-FEED> \
      --name "dongle-linux-$ARCH" \
-     --version <TODO-VERSION> \
+     --version "*" \
      --path ./dongle-download
    ```
 
@@ -106,7 +108,8 @@ Pick the build that matches your CPU. dongle selects plugin builds for
 the architecture it was itself built for, so an amd64 dongle on an arm64
 machine (or the reverse) would install the wrong plugin builds.
 
-To update dongle later, repeat steps 1 to 3 with the newer version.
+To update dongle later, repeat steps 1 to 3: the same commands fetch the
+newest version.
 
 ## Step 3 — First run
 
