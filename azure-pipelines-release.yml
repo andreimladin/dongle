@@ -12,11 +12,6 @@
 # rewrite of the build itself. Target platforms live only in this matrix,
 # not duplicated into repo config. Release always embeds — there is no
 # no-embed release path.
-#
-# After every BuildAndPublish leg succeeds, TestLinux smoke-tests the
-# published linux/amd64 package on ubuntu-latest, installing it the way the
-# Forge getting-started guide's Linux steps tell users to (see
-# templates/test-linux-job.yml).
 trigger: none
 pr: none
 
@@ -119,10 +114,3 @@ jobs:
 
             rm -rf "$stage"
         displayName: "Publish dongle-$(os)-$(arch) to the host feed"
-
-  - template: templates/test-linux-job.yml
-    parameters:
-      dependsOn: [Guard, BuildAndPublish]
-      dongleVersion: $[ dependencies.Guard.outputs['setver.DONGLE_VERSION'] ]
-      hostFeed: $(HOST_FEED)
-      azureServiceConnection: $(AZURE_SERVICE_CONNECTION)

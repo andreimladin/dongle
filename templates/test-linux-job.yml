@@ -1,5 +1,5 @@
-# Job template: smoke test of the just-published dongle linux/amd64
-# release, installed the way the Forge getting-started guide's Linux steps
+# Job template: smoke test of a published dongle linux/amd64 release,
+# installed the way the Forge getting-started guide's Linux steps
 # tell users to (docs/forge/getting-started/index.md):
 #
 #   Step 1 — Prerequisites   az + azure-devops extension; `az login` is the
@@ -11,30 +11,24 @@
 #   Step 3 — First run       `dongle --version` in a new shell
 #
 # plus `dongle --help`. The guide's commands are used verbatim, except that
-# the download has the feed values filled in and is pinned to the release
-# just published instead of `--version "*"`. If you change those docs
-# steps, change this template too.
+# the download has the feed values filled in and takes `dongleVersion`
+# (default "*" = latest, as in the guide). If you change those docs steps,
+# change this template too.
 #
 # Only linux/amd64 is tested, natively on a Microsoft-hosted ubuntu-latest
 # agent (amd64). linux/arm64 is not tested here.
 #
-# Used by azure-pipelines-release.yml after BuildAndPublish:
-#
-#   - template: templates/test-linux-job.yml
-#     parameters:
-#       dependsOn: [Guard, BuildAndPublish]
-#       dongleVersion: $[ dependencies.Guard.outputs['setver.DONGLE_VERSION'] ]
-#       hostFeed: $(HOST_FEED)
-#       azureServiceConnection: $(AZURE_SERVICE_CONNECTION)
+# Used by azure-pipelines-test-linux.yml.
 
 parameters:
   - name: dependsOn
     type: object
     default: []
-  # Release version to download and assert in `dongle --version`. May be a
-  # runtime expression ($[ dependencies.<job>.outputs[...] ]).
+  # Version to download and assert in `dongle --version`. "*" downloads
+  # the latest (as the guide does) and only asserts it looks like x.y.z.
   - name: dongleVersion
     type: string
+    default: "*"
   - name: hostFeed
     type: string
   # Azure DevOps project of the (project-scoped) host feed — the guide's
@@ -128,7 +122,11 @@ jobs:
           run --version
           expect "$err" '^Initialized plugin index '
           expect "$err" '^Initialization complete\.'
-          expect "$out" "^dongle[[:space:]]+$(DONGLE_VERSION)\$"
+          if [ "$(DONGLE_VERSION)" = "*" ]; then
+            expect "$out" '^dongle[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+'
+          else
+            expect "$out" "^dongle[[:space:]]+$(DONGLE_VERSION)\$"
+          fi
           expect "$out" '^index[[:space:]]+.+\(embedded\)'
           expect "$out" '^installed plugins:'
 
