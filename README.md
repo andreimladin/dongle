@@ -371,6 +371,7 @@ tools/readconfig/       build-time-only helper: reads configs/build.yaml,
 tools/validate-manifest/  standalone tool (not a dongle subcommand): validates
                         plugins/<name>.yaml manifests using the exact same
                         internal/index types/parsing dongle itself uses, plus
+                        a check that all 6 mandatory os/arch pairs are declared and
                         a feed existence check per declared platform. Built
                         for the index repo's own PR pipeline to download from
                         the feed and run against changed/all manifests — see

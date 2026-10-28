@@ -7,7 +7,7 @@ bump, platform addition, or a feed coordinate change? -->
 
 - [ ] PR targets `develop`
 - [ ] Checkmarx scan passed with no critical/high findings, and the report is attached to this PR
-- [ ] The plugin supports macOS, Windows, or both (Linux optional; Linux-only is not accepted)
+- [ ] The plugin provides executables for all 6 platforms: macOS, Windows and Linux, each on arm64 and amd64 (all mandatory; CI enforces it)
 - [ ] `name:` matches the filename (`plugins/<name>.yaml` → `name: <name>`)
 - [ ] `version:` bumped and matches what was actually published
 - [ ] Package(s) for every platform listed in the manifest published to the feed named in `feed:`, at `version:` (without the leading `v`), one executable per package
@@ -28,5 +28,5 @@ merge, ask the dongle team to release a new index version (see
 
 ## Notes for reviewers
 
-<!-- Anything reviewers should know: platforms intentionally not built yet,
-known gaps, the packages you published, etc. -->
+<!-- Anything reviewers should know: known gaps, the packages you
+published, etc. -->

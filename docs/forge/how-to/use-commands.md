@@ -26,7 +26,10 @@ dongle install deploy
 ```
 
 dongle checks that the plugin is compatible with your dongle version,
-downloads the build for your OS and CPU, and installs it. Then run it like
+downloads the build for your OS and CPU, and installs it. You don't choose
+the build: every plugin is published for macOS, Windows and Linux on both
+arm64 and amd64, and dongle picks the one matching your dongle (see
+[How dongle works](../explanation/design.md#where-plugins-come-from-feeds)). Then run it like
 any other command, passing its own arguments after the name:
 
 ```sh
