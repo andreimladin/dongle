@@ -74,7 +74,11 @@ Installing a plugin means:
 
 1. read its manifest from the local index;
 2. check compatibility;
-3. pick the `platforms` entry matching this machine's OS and CPU;
+3. pick the `platforms` entry matching this machine's OS and CPU,
+   automatically. More precisely, dongle matches the OS and architecture
+   its own executable was built for (for example `darwin/arm64` or
+   `linux/amd64`), which is the same as your machine's as long as you
+   installed the dongle build for your machine;
 4. download that package (`az artifacts universal download`) into a staging
    folder;
 5. take the single file in it, place it under

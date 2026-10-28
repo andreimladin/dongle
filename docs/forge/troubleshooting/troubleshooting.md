@@ -34,7 +34,7 @@ place, then look for your message below.
 | `command "X" is not supported` | `X` isn't a builtin or an installed plugin. Check `dongle search`, then `dongle install X` |
 | `no plugin named X in the index` | check the spelling. If the plugin was added recently, run `dongle update`; if it's still missing, it hasn't been released in the index yet |
 | `X requires host >=… but this host is …` | the plugin needs a newer dongle. Update dongle from Self Service (macOS) or Company Portal (Windows), or on Linux download the newer executable ([Installation](../getting-started/index.md#linux)) |
-| `X … has no build for <os>/<arch>` | every plugin ships for macOS, Windows and Linux, but not necessarily for every CPU type (for example ARM64). Contact its owners (`dongle support X`) |
+| `X … has no build for <os>/<arch>` | every plugin must ship for macOS, Windows and Linux on both arm64 and amd64. If `<os>/<arch>` is one of those, the plugin's index entry is incomplete: contact its owners (`dongle support X`). If it's anything else (for example `linux/386`), your dongle build isn't a supported platform: on Linux, reinstall the build matching `uname -m` ([Installation](../getting-started/index.md#linux)) |
 | `installed X … is newer than the index …; not downgrading` | expected. To force the index's version: `dongle remove X`, then `dongle install X` |
 | a script hangs or doesn't update the index | in scripts, pass `--sync` or `--no-sync` to `search`/`install`/`upgrade` |
 

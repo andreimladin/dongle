@@ -33,7 +33,11 @@ signed in.
 
 ## Step 2 — Installation
 
-dongle runs on macOS, Windows and Linux.
+dongle runs on **macOS, Windows and Linux**, each on both **arm64**
+(Apple silicon, ARM) and **amd64** (Intel, x64). Every plugin is published
+for all six of these combinations, and dongle picks the right plugin build
+for you automatically when you install it: you never choose an
+architecture for a plugin.
 
 ### macOS and Windows
 
@@ -59,35 +63,50 @@ dongle feed with the Azure CLI you set up in Step 1, then put it on your
      (HOST_FEED in the dongle repo's azure-pipelines-release.yml), and the
      latest dongle version. -->
 
-1. Download the build for your CPU (`dongle-linux-amd64` for x64,
-   `dongle-linux-arm64` for ARM64):
+1. Find your CPU architecture. `uname -m` prints `x86_64` on amd64 and
+   `aarch64` (or `arm64`) on arm64. This sets `ARCH` for the next steps:
+
+   ```sh
+   case "$(uname -m)" in
+     x86_64) ARCH=amd64 ;;
+     aarch64|arm64) ARCH=arm64 ;;
+     *) echo "unsupported architecture: $(uname -m)" ;;
+   esac
+   ```
+
+2. Download the matching build, `dongle-linux-amd64` or
+   `dongle-linux-arm64`:
 
    ```sh
    az artifacts universal download \
      --organization https://dev.azure.com/<TODO-ORG> \
      --feed <TODO-HOST-FEED> \
-     --name dongle-linux-amd64 \
+     --name "dongle-linux-$ARCH" \
      --version <TODO-VERSION> \
      --path ./dongle-download
    ```
 
-2. Make it executable, rename it to `dongle` and move it onto your `PATH`:
+3. Make it executable, rename it to `dongle` and move it onto your `PATH`:
 
    ```sh
-   chmod +x ./dongle-download/dongle-linux-amd64
+   chmod +x "./dongle-download/dongle-linux-$ARCH"
    mkdir -p ~/.local/bin
-   mv ./dongle-download/dongle-linux-amd64 ~/.local/bin/dongle
+   mv "./dongle-download/dongle-linux-$ARCH" ~/.local/bin/dongle
    rm -rf ./dongle-download
    ```
 
-3. If `~/.local/bin` isn't on your `PATH` yet (`echo $PATH` to check), add
+4. If `~/.local/bin` isn't on your `PATH` yet (`echo $PATH` to check), add
    it to your shell profile (`~/.bashrc`, `~/.zshrc`, ...):
 
    ```sh
    export PATH="$HOME/.local/bin:$PATH"
    ```
 
-To update dongle later, repeat steps 1 and 2 with the newer version.
+Pick the build that matches your CPU. dongle selects plugin builds for
+the architecture it was itself built for, so an amd64 dongle on an arm64
+machine (or the reverse) would install the wrong plugin builds.
+
+To update dongle later, repeat steps 1 to 3 with the newer version.
 
 ## Step 3 — First run
 

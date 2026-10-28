@@ -31,10 +31,11 @@ Your plugin must meet all of these before you open a PR:
 - [ ] **It needs no other external tools.** It must not rely on runtimes,
       interpreters or other CLIs being installed on the user's machine. If
       it does, **contact the dongle team** before onboarding.
-- [ ] **It provides executables for macOS, Windows and Linux.** All three
-      are mandatory: your manifest needs at least one `platforms` entry for
-      each, and CI fails the PR if any of them is missing or its package
-      isn't in the feed. See the
+- [ ] **It provides executables for macOS (arm64 + amd64), Windows
+      (arm64 + amd64) and Linux (arm64 + amd64).** All 6 OS/architecture
+      combinations are mandatory: your manifest needs a `platforms` entry
+      for each, and CI fails the PR if any of the 6 is missing or its
+      package isn't in the feed. See the
       [platform policy](README.md#platforms).
 - [ ] **It works as a dongle plugin.** dongle runs it as a child process
       following the host↔plugin contract in
@@ -44,8 +45,8 @@ Your plugin must meet all of these before you open a PR:
 
 ## 1. Build and publish your executables
 
-Publish one executable per platform — at least one each for macOS,
-Windows and Linux — to an Azure Artifacts feed,
+Publish one executable for each of the 6 mandatory platforms (macOS,
+Windows and Linux, each on arm64 and amd64) to an Azure Artifacts feed,
 as Universal Packages, at the version you're about to declare in your
 manifest. The package rules (one file per package, versioning, naming) are
 in the Manifest reference under
@@ -187,9 +188,9 @@ report**.
 A PR is merged only when both of these are true:
 
 - [ ] **The CI pipeline passes.** It validates the manifests your PR
-      changed, **fails any manifest without a macOS, Windows and Linux
-      entry**, and checks that the executable package for **each declared
-      platform exists in the feed** (see
+      changed, **fails any manifest that doesn't declare all 6
+      OS/architecture combinations**, and checks that the executable
+      package for **each declared platform exists in the feed** (see
       [What CI checks](README.md#what-ci-checks)). CI doesn't run or test
       your plugin itself.
 - [ ] **2 approvals from the dongle team.**
@@ -199,8 +200,9 @@ If CI fails, read the validation step's log:
 - **`correctness: FAIL`**: each `error:` line names a field. Fix it as
   described in the [Manifest reference](README.md#manifest-reference). The
   package checks don't run until the manifest itself is correct. A
-  `manifest <name>.yaml is missing a <OS> platform entry` error means you
-  need to add a `platforms` entry for that OS.
+  `manifest <name>.yaml is missing platform <os>/<arch>` error means you
+  need to add a `platforms` entry for that combination (and publish its
+  package).
 - **A platform line ends in `FAIL — ...`**: that package couldn't be
   downloaded. Usually it hasn't been published yet, or the name, version or
   feed in your manifest doesn't match what's in the feed. The `az` error

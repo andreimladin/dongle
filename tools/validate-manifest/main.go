@@ -17,9 +17,9 @@
 //  1. Correctness — strict YAML parsing (unknown fields rejected), name
 //     matches the filename, version is valid semver, feed coordinates are
 //     present, every declared platform entry has both a selector and a
-//     package reference, and the manifest covers every mandatory OS —
-//     macOS (darwin), Windows (windows) and Linux (linux) — with at least
-//     one platform entry each (see requiredPlatforms).
+//     package reference, and the manifest declares every mandatory os/arch
+//     combination — darwin, windows and linux, each on arm64 and amd64
+//     (see requiredPlatforms).
 //  2. Existence — for each declared platform, confirm that platform's
 //     package actually exists at the manifest's version in the feed the
 //     manifest itself names (not a global/configured feed). See
@@ -213,7 +213,7 @@ func checkCorrectness(path string) (m *index.Manifest, errs []string) {
 	}
 	declared := make(map[string]bool, len(m.Platforms))
 	for i, p := range m.Platforms {
-		declared[p.Selector.OS] = true
+		declared[p.Selector.OS+"/"+p.Selector.Arch] = true
 		if p.Selector.OS == "" {
 			errs = append(errs, fmt.Sprintf("platforms[%d].selector.os is required", i))
 		}
@@ -225,8 +225,8 @@ func checkCorrectness(path string) (m *index.Manifest, errs []string) {
 		}
 	}
 	for _, rp := range requiredPlatforms {
-		if !declared[rp.os] {
-			errs = append(errs, fmt.Sprintf("manifest %s is missing a %s platform entry (selector.os: %s)", base, rp.label, rp.os))
+		if !declared[rp] {
+			errs = append(errs, fmt.Sprintf("manifest %s is missing platform %s", base, rp))
 		}
 	}
 
@@ -234,12 +234,13 @@ func checkCorrectness(path string) (m *index.Manifest, errs []string) {
 }
 
 // requiredPlatforms is the platform policy: every plugin must ship an
-// executable for each of these OSes (any arch). Coverage is checked per OS
-// only — which architectures to build is the plugin team's call.
-var requiredPlatforms = []struct{ os, label string }{
-	{"darwin", "macOS"},
-	{"windows", "Windows"},
-	{"linux", "Linux"},
+// executable for each of these os/arch combinations (Go GOOS/GOARCH
+// spelling, as in platforms[].selector) — the same six the host itself is
+// released for (see azure-pipelines-release.yml).
+var requiredPlatforms = []string{
+	"darwin/arm64", "darwin/amd64",
+	"linux/arm64", "linux/amd64",
+	"windows/arm64", "windows/amd64",
 }
 
 // packageCheck is one platform's existence-check result.
@@ -251,8 +252,9 @@ type packageCheck struct {
 // checkExistence is layer (b): for each declared platform, confirm that
 // platform's package exists at m.Version in the feed m itself names. Only
 // called once checkCorrectness has passed, so m's feed/platform fields are
-// known to be populated and every mandatory OS has at least one entry. Always returns one result per platform (pass or
-// fail) so callers can report a complete per-package breakdown.
+// known to be populated and every mandatory os/arch is declared. Always
+// returns one result per platform (pass or fail) so callers can report a
+// complete per-package breakdown.
 func checkExistence(m *index.Manifest, azAvailable bool) []packageCheck {
 	version := strings.TrimPrefix(m.Version, "v") // upack versions are bare semver
 	results := make([]packageCheck, 0, len(m.Platforms))
@@ -263,7 +265,7 @@ func checkExistence(m *index.Manifest, azAvailable bool) []packageCheck {
 			r.err = fmt.Errorf("az CLI not found; cannot verify package existence (see: az extension add --name azure-devops)")
 		default:
 			if err := packageExists(m.Feed, p.Package, version); err != nil {
-				r.err = fmt.Errorf("%s: %s executable not found in feed %q: %w", m.Name, p.Selector.OS, m.Feed.Feed, err)
+				r.err = fmt.Errorf("%s: %s/%s executable not found in feed %q: %w", m.Name, p.Selector.OS, p.Selector.Arch, m.Feed.Feed, err)
 			}
 		}
 		results = append(results, r)

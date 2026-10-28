@@ -7,7 +7,7 @@ bump, platform addition, or a feed coordinate change? -->
 
 - [ ] PR targets `develop`
 - [ ] Checkmarx scan passed with no critical/high findings, and the report is attached to this PR
-- [ ] The plugin provides executables for macOS, Windows and Linux (all three mandatory; CI enforces it)
+- [ ] The plugin provides executables for all 6 platforms: macOS, Windows and Linux, each on arm64 and amd64 (all mandatory; CI enforces it)
 - [ ] `name:` matches the filename (`plugins/<name>.yaml` → `name: <name>`)
 - [ ] `version:` bumped and matches what was actually published
 - [ ] Package(s) for every platform listed in the manifest published to the feed named in `feed:`, at `version:` (without the leading `v`), one executable per package

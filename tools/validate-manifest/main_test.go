@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,16 +27,34 @@ support:
 platforms:
 `
 
-const (
-	darwinEntry  = "  - selector: { os: darwin, arch: arm64 }\n    package: dongle-deploy_2.3.1_darwin_arm64\n"
-	windowsEntry = "  - selector: { os: windows, arch: amd64 }\n    package: dongle-deploy_2.3.1_windows_amd64\n"
-	linuxEntry   = "  - selector: { os: linux, arch: amd64 }\n    package: dongle-deploy_2.3.1_linux_amd64\n"
-)
+// entry renders one platforms[] item for an "os/arch" pair.
+func entry(osArch string) string {
+	goos, goarch, _ := strings.Cut(osArch, "/")
+	return fmt.Sprintf("  - selector: { os: %s, arch: %s }\n    package: dongle-deploy_2.3.1_%s_%s\n", goos, goarch, goos, goarch)
+}
+
+// allExcept returns every required os/arch pair except the given ones.
+func allExcept(skip ...string) []string {
+	var out []string
+	for _, rp := range requiredPlatforms {
+		skipped := false
+		for _, s := range skip {
+			skipped = skipped || s == rp
+		}
+		if !skipped {
+			out = append(out, rp)
+		}
+	}
+	return out
+}
 
 func writeManifest(t *testing.T, platforms ...string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "deploy.yaml")
-	body := manifestHead + strings.Join(platforms, "")
+	body := manifestHead
+	for _, p := range platforms {
+		body += entry(p)
+	}
 	if len(platforms) == 0 {
 		body += "  []\n"
 	}
@@ -45,32 +64,42 @@ func writeManifest(t *testing.T, platforms ...string) string {
 	return path
 }
 
-func TestCheckCorrectnessRequiresAllPlatforms(t *testing.T) {
+func missing(osArch string) string { return "manifest deploy.yaml is missing platform " + osArch }
+
+func TestRequiredPlatformsAreTheSixHostTargets(t *testing.T) {
+	want := "darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/arm64 windows/amd64"
+	if got := strings.Join(requiredPlatforms, " "); got != want {
+		t.Errorf("requiredPlatforms = %s, want %s", got, want)
+	}
+}
+
+func TestCheckCorrectnessRequiresAllSixPlatforms(t *testing.T) {
 	tests := []struct {
 		name      string
 		platforms []string
 		wantErrs  []string
 	}{
-		{"all three", []string{darwinEntry, windowsEntry, linuxEntry}, nil},
-		{"missing linux", []string{darwinEntry, windowsEntry}, []string{
-			"manifest deploy.yaml is missing a Linux platform entry (selector.os: linux)",
+		{"all six", allExcept(), nil},
+		{"all six plus an extra", append(allExcept(), "linux/386"), nil},
+		{"one OS on one arch only", []string{"darwin/arm64", "windows/amd64", "linux/amd64"}, []string{
+			missing("darwin/amd64"), missing("linux/arm64"), missing("windows/arm64"),
 		}},
-		{"missing windows", []string{darwinEntry, linuxEntry}, []string{
-			"manifest deploy.yaml is missing a Windows platform entry (selector.os: windows)",
+		{"OS missing entirely", allExcept("windows/arm64", "windows/amd64"), []string{
+			missing("windows/arm64"), missing("windows/amd64"),
 		}},
-		{"missing macOS", []string{windowsEntry, linuxEntry}, []string{
-			"manifest deploy.yaml is missing a macOS platform entry (selector.os: darwin)",
-		}},
-		{"linux only", []string{linuxEntry}, []string{
-			"manifest deploy.yaml is missing a macOS platform entry (selector.os: darwin)",
-			"manifest deploy.yaml is missing a Windows platform entry (selector.os: windows)",
-		}},
-		{"none", nil, []string{
-			"platforms: at least one platform entry is required",
-			"manifest deploy.yaml is missing a macOS platform entry (selector.os: darwin)",
-			"manifest deploy.yaml is missing a Windows platform entry (selector.os: windows)",
-			"manifest deploy.yaml is missing a Linux platform entry (selector.os: linux)",
-		}},
+		{"none", nil, append([]string{"platforms: at least one platform entry is required"},
+			missing("darwin/arm64"), missing("darwin/amd64"),
+			missing("linux/arm64"), missing("linux/amd64"),
+			missing("windows/arm64"), missing("windows/amd64"),
+		)},
+	}
+	// Each of the six, missing on its own, is reported by name.
+	for _, rp := range requiredPlatforms {
+		tests = append(tests, struct {
+			name      string
+			platforms []string
+			wantErrs  []string
+		}{"missing " + rp, allExcept(rp), []string{missing(rp)}})
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,7 +112,7 @@ func TestCheckCorrectnessRequiresAllPlatforms(t *testing.T) {
 }
 
 func TestCheckExistenceReportsEachPlatform(t *testing.T) {
-	m, errs := checkCorrectness(writeManifest(t, darwinEntry, windowsEntry, linuxEntry))
+	m, errs := checkCorrectness(writeManifest(t, allExcept()...))
 	if len(errs) > 0 {
 		t.Fatalf("unexpected correctness errors: %v", errs)
 	}
@@ -93,44 +122,47 @@ func TestCheckExistenceReportsEachPlatform(t *testing.T) {
 	var asked []string
 	packageExists = func(feed index.Feed, pkg, version string) error {
 		asked = append(asked, pkg+"@"+version)
-		if strings.Contains(pkg, "linux") {
+		if strings.HasSuffix(pkg, "_windows_arm64") {
 			return errors.New("az artifacts universal download: exit status 1: package not found")
 		}
 		return nil
 	}
 
 	results := checkExistence(m, true)
-	want := []string{
-		"dongle-deploy_2.3.1_darwin_arm64@2.3.1",
-		"dongle-deploy_2.3.1_windows_amd64@2.3.1",
-		"dongle-deploy_2.3.1_linux_amd64@2.3.1",
+	var want []string
+	for _, rp := range requiredPlatforms {
+		want = append(want, "dongle-deploy_2.3.1_"+strings.Replace(rp, "/", "_", 1)+"@2.3.1")
 	}
 	if strings.Join(asked, ",") != strings.Join(want, ",") {
 		t.Fatalf("checked %v, want %v", asked, want)
 	}
-	if len(results) != 3 {
-		t.Fatalf("got %d results, want 3", len(results))
+	if len(results) != len(requiredPlatforms) {
+		t.Fatalf("got %d results, want %d", len(results), len(requiredPlatforms))
 	}
 	for _, r := range results {
-		if r.os == "linux" {
-			if r.err == nil || !strings.HasPrefix(r.err.Error(), `deploy: linux executable not found in feed "dongle-plugins": `) {
-				t.Errorf("linux err = %v", r.err)
+		if r.os+"/"+r.arch == "windows/arm64" {
+			if r.err == nil || !strings.HasPrefix(r.err.Error(), `deploy: windows/arm64 executable not found in feed "dongle-plugins": `) {
+				t.Errorf("windows/arm64 err = %v", r.err)
 			}
 		} else if r.err != nil {
-			t.Errorf("%s err = %v, want nil", r.os, r.err)
+			t.Errorf("%s/%s err = %v, want nil", r.os, r.arch, r.err)
 		}
 	}
 }
 
 func TestCheckExistenceWithoutAz(t *testing.T) {
-	m, _ := checkCorrectness(writeManifest(t, darwinEntry, windowsEntry, linuxEntry))
+	m, _ := checkCorrectness(writeManifest(t, allExcept()...))
 	orig := packageExists
 	t.Cleanup(func() { packageExists = orig })
 	packageExists = func(index.Feed, string, string) error {
 		t.Fatal("packageExists called without az")
 		return nil
 	}
-	for _, r := range checkExistence(m, false) {
+	results := checkExistence(m, false)
+	if len(results) != len(requiredPlatforms) {
+		t.Fatalf("got %d results, want %d", len(results), len(requiredPlatforms))
+	}
+	for _, r := range results {
 		if r.err == nil {
 			t.Errorf("%s/%s: expected failure without az", r.os, r.arch)
 		}
