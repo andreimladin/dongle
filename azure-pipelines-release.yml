@@ -16,7 +16,7 @@
 # After every BuildAndPublish leg succeeds, TestLinux smoke-tests the two
 # linux packages exactly as published (downloaded back from the host feed
 # at DONGLE_VERSION): linux/amd64 natively, linux/arm64 under QEMU
-# emulation (see the NOTE on that job).
+# emulation (see templates/test-linux-job.yml).
 trigger: none
 pr: none
 
@@ -32,10 +32,6 @@ variables:
   PLUGIN_FEED: "TODO-plugin-feed-name"
   HOST_FEED: "TODO-host-feed-name"
   AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
-  # TODO: pin both images by digest for reproducibility if desired. Used
-  # only by the TestLinux job's linux/arm64 (QEMU) leg.
-  BINFMT_IMAGE: "tonistiigi/binfmt:latest"
-  ARM64_RUN_IMAGE: "debian:bookworm-slim"
 
 jobs:
   - job: Guard
@@ -124,134 +120,10 @@ jobs:
             rm -rf "$stage"
         displayName: "Publish dongle-$(os)-$(arch) to the host feed"
 
-  # Smoke test of the just-published LINUX distribution: each binary must
-  # start, run its first-run bootstrap, and answer `dongle --version` and
-  # `dongle --help` with exit 0 and the expected output.
-  #
-  # NOTE: linux/arm64 is tested via QEMU emulation, NOT on a native arm64
-  # agent — Microsoft-hosted agents are amd64-only, so binfmt_misc is
-  # registered for arm64 (tonistiigi/binfmt) and the arm64 binary runs in an
-  # arm64 container (`docker run --platform linux/arm64`). That proves it's
-  # a valid, runnable arm64 executable, but can't catch issues that only
-  # show up on real arm64 hardware/kernels. If faithful native arm64 testing
-  # is later required, swap the arm64 leg to a self-hosted arm64 agent pool
-  # (job-level `pool: { name: <your-arm64-pool> }` for that leg) with
-  # `runner: native` and drop the QEMU setup step.
-  - job: TestLinux
-    dependsOn:
-      - Guard
-      - BuildAndPublish
-    displayName: "Smoke test published linux binaries"
-    variables:
-      DONGLE_VERSION: $[ dependencies.Guard.outputs['setver.DONGLE_VERSION'] ]
-    strategy:
-      matrix:
-        linux_amd64_native:
-          arch: amd64
-          runner: native # runs directly on the amd64 hosted agent
-        linux_arm64_qemu:
-          arch: arm64
-          runner: qemu # emulated on the amd64 hosted agent — see NOTE above
-    steps:
-      - checkout: none
-
-      - task: AzureCLI@2
-        inputs:
-          azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
-          scriptType: bash
-          scriptLocation: inlineScript
-          inlineScript: |
-            set -eu
-            az extension add --name azure-devops --only-show-errors
-            dl=$(mktemp -d)
-            az artifacts universal download \
-              --organization "$(System.CollectionUri)" \
-              --feed "$(HOST_FEED)" \
-              --name "dongle-linux-$(arch)" \
-              --version "$(DONGLE_VERSION)" \
-              --path "$dl"
-            mkdir -p dist
-            cp "$dl/dongle-linux-$(arch)" "dist/dongle-linux-$(arch)"
-            chmod 0755 "dist/dongle-linux-$(arch)"
-        displayName: "Download dongle-linux-$(arch)@$(DONGLE_VERSION) from the host feed"
-
-      # ---- QEMU (arm64 leg only) -------------------------------------------
-
-      - script: |
-          set -eu
-          docker run --privileged --rm "$(BINFMT_IMAGE)" --install arm64
-          cat /proc/sys/fs/binfmt_misc/qemu-aarch64
-          docker run --rm --platform linux/arm64 "$(ARM64_RUN_IMAGE)" uname -m | grep -qx aarch64
-          echo "arm64 emulation ready"
-        condition: and(succeeded(), eq(variables.runner, 'qemu'))
-        displayName: "Set up QEMU/binfmt for linux/arm64 emulation"
-
-      # ---- smoke test ------------------------------------------------------
-
-      - script: |
-          set -uo pipefail
-          bin="$PWD/dist/dongle-linux-$(arch)"
-          [ -f "$bin" ] || { echo "##vso[task.logissue type=error]missing $bin"; exit 1; }
-
-          # Guard against testing the wrong arch: an amd64 binary would
-          # "pass" inside the arm64 container too (the amd64 kernel just
-          # runs it natively).
-          want=$([ "$(arch)" = arm64 ] && echo 'ARM aarch64' || echo 'x86-64')
-          info=$(file "$bin"); echo "$info"
-          case "$info" in *"$want"*) ;; *) echo "##vso[task.logissue type=error]$bin is not a $want binary"; exit 1 ;; esac
-
-          # dongle runs with a fresh, throwaway data/home dir on every call,
-          # so each one is a real first run (embedded index + default
-          # plugins unpacked) and the agent's own home is never touched.
-          dongle() {
-            if [ "$(runner)" = qemu ]; then
-              docker run --rm --platform linux/arm64 \
-                -v "$bin:/usr/local/bin/dongle:ro" \
-                -e HOME=/tmp/h -e DONGLE_DATA_DIR=/tmp/h/data -e XDG_CACHE_HOME=/tmp/h/cache \
-                "$(ARM64_RUN_IMAGE)" dongle "$@"
-            else
-              local h; h=$(mktemp -d)
-              HOME="$h" DONGLE_DATA_DIR="$h/data" XDG_CACHE_HOME="$h/cache" "$bin" "$@"
-            fi
-          }
-
-          failed=0
-          fail() { echo "##vso[task.logissue type=error]$*"; failed=1; }
-
-          # run <name> <args...>: run dongle, show its output, check exit 0
-          # and that it printed no error:/warning: diagnostics.
-          out=$(mktemp) err=$(mktemp)
-          run() {
-            local name=$1; shift
-            echo "===== dongle $* ====="
-            dongle "$@" >"$out" 2>"$err"
-            local rc=$?
-            echo "--- stdout ---"; cat "$out"
-            echo "--- stderr ---"; cat "$err"
-            echo "--- exit $rc ---"
-            [ "$rc" -eq 0 ] || fail "$name: exit code $rc, want 0"
-            ! grep -Eq 'error:|warning:' "$err" || fail "$name: diagnostics on stderr"
-          }
-          expect() { grep -Eq -e "$2" "$out" || fail "$1: stdout does not match /$2/"; }
-
-          run "--version" --version
-          expect "--version" "^dongle[[:space:]]+$(DONGLE_VERSION)\$"
-          # Release builds always embed: on a first run the index comes from
-          # the embedded seed and the embedded default plugins get installed.
-          expect "--version" '^index[[:space:]]+.+\(embedded\)'
-          expect "--version" '^installed plugins:'
-
-          run "--help" --help
-          expect "--help" 'one CLI, plug in the rest'
-          expect "--help" '^Usage:'
-          expect "--help" 'dongle <plugin> \[args\.\.\.\]'
-          expect "--help" '--version'
-
-          [ "$failed" -eq 0 ] || exit 1
-          echo "smoke test passed: linux/$(arch) ($(runner))"
-        displayName: "Smoke test dongle-linux-$(arch) ($(runner))"
-
-      - publish: dist/dongle-linux-$(arch)
-        artifact: dongle-linux-$(arch)-tested
-        condition: succeededOrFailed()
-        displayName: "Publish tested binary (for debugging)"
+  - template: templates/test-linux-job.yml
+    parameters:
+      dependsOn: [Guard, BuildAndPublish]
+      dongleVersion: $[ dependencies.Guard.outputs['setver.DONGLE_VERSION'] ]
+      hostFeed: $(HOST_FEED)
+      azureServiceConnection: $(AZURE_SERVICE_CONNECTION)
+      vmImage: ubuntu-latest # amd64 Linux agent with Docker (arm64 runs under QEMU)
