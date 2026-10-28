@@ -1,4 +1,23 @@
-# Job template: smoke test of the just-published dongle LINUX distribution.
+# Job template: smoke test of the just-published dongle LINUX distribution,
+# installed exactly the way a user does it — following the Linux steps of
+# the Forge getting-started guide (docs/forge/getting-started/index.md):
+#
+#   Step 1 — Prerequisites   az + azure-devops extension; `az login` is the
+#                            service connection (AzureCLI@2)
+#   Step 2 — Installation    (Linux) 1. find ARCH from `uname -m`
+#                                    2. az artifacts universal download
+#                                    3. chmod +x, mv to ~/.local/bin/dongle
+#                                    4. put ~/.local/bin on PATH
+#   Step 3 — First run       `dongle --version` in a new shell: first-run
+#                            setup, then version/index/plugins output
+#
+# plus `dongle --help`. Steps 1, 3 and 4 of the Linux install and the first
+# run execute in the target environment (the agent itself, or an arm64
+# container) with a fresh, empty HOME, using the guide's commands verbatim.
+# Only the download (step 2) runs on the agent, because that's where the
+# Azure credentials are; it uses the guide's command with the feed values
+# filled in. If you change those docs steps, change this template too.
+#
 # Used by azure-pipelines-release.yml after BuildAndPublish:
 #
 #   - template: templates/test-linux-job.yml
@@ -9,20 +28,16 @@
 #       azureServiceConnection: $(AZURE_SERVICE_CONNECTION)
 #       vmImage: ubuntu-latest
 #
-# It downloads dongle-linux-<arch>@<dongleVersion> back from the host feed
-# (exactly what the release published; no checkout, no rebuild) and checks
-# that each binary starts, runs its first-run bootstrap, and answers
-# `dongle --version` and `dongle --help` with exit 0 and the expected output.
-#
 # NOTE: linux/arm64 is tested via QEMU emulation, NOT on a native arm64
 # agent — Microsoft-hosted agents are amd64-only, so binfmt_misc is
-# registered for arm64 (tonistiigi/binfmt) and the arm64 binary runs in an
-# arm64 container (`docker run --platform linux/arm64`). That proves it's
-# a valid, runnable arm64 executable, but can't catch issues that only
-# show up on real arm64 hardware/kernels. If faithful native arm64 testing
-# is later required, swap the arm64 leg to a self-hosted arm64 agent pool
-# (that leg needs its own `pool: { name: <your-arm64-pool> }`, so split it
-# into a separate job) with `runner: native` and drop the QEMU setup step.
+# registered for arm64 (tonistiigi/binfmt) and the user-side steps run in an
+# arm64 container (`docker run --platform linux/arm64`), where `uname -m`
+# reports aarch64 just like on real arm64 hardware. That proves the arm64
+# build installs and runs, but can't catch issues that only show up on real
+# arm64 hardware/kernels. If faithful native arm64 testing is later
+# required, swap the arm64 leg to a self-hosted arm64 agent pool (that leg
+# needs its own `pool: { name: <your-arm64-pool> }`, so split it into a
+# separate job) with `runner: native` and drop the QEMU setup step.
 
 parameters:
   - name: jobName
@@ -32,16 +47,25 @@ parameters:
     type: object
     default: []
   # Release version to download and assert in `dongle --version`. May be a
-  # runtime expression ($[ dependencies.<job>.outputs[...] ]).
+  # runtime expression ($[ dependencies.<job>.outputs[...] ]). The guide
+  # downloads `--version "*"` (latest); pinning to the release just
+  # published tests exactly that build, even if another release lands
+  # meanwhile.
   - name: dongleVersion
     type: string
   - name: hostFeed
     type: string
+  # Azure DevOps project of the (project-scoped) host feed — the guide's
+  # `--project`. Defaults to the project this pipeline runs in.
+  # TODO: set explicitly if the host feed lives in another project.
+  - name: hostProject
+    type: string
+    default: $(System.TeamProject)
   # Service connection with read access to hostFeed.
   - name: azureServiceConnection
     type: string
-  # Must be a Microsoft-hosted (or otherwise amd64) Linux image with Docker:
-  # the arm64 leg emulates arm64 on it via QEMU.
+  # Must be an amd64 Linux image with Docker: the arm64 leg emulates arm64
+  # on it via QEMU.
   - name: vmImage
     type: string
     default: ubuntu-latest
@@ -49,6 +73,7 @@ parameters:
   - name: binfmtImage
     type: string
     default: tonistiigi/binfmt:latest
+  # Stands in for a user's arm64 Linux machine (clean Debian, no dongle).
   - name: arm64RunImage
     type: string
     default: debian:bookworm-slim
@@ -56,13 +81,14 @@ parameters:
 jobs:
 - job: ${{ parameters.jobName }}
   dependsOn: ${{ parameters.dependsOn }}
-  displayName: "Smoke test published linux binaries"
+  displayName: "Smoke test published linux binaries (Forge install steps)"
   pool:
     vmImage: ${{ parameters.vmImage }}
   variables:
     DONGLE_VERSION: ${{ parameters.dongleVersion }}
     BINFMT_IMAGE: ${{ parameters.binfmtImage }}
     ARM64_RUN_IMAGE: ${{ parameters.arm64RunImage }}
+    WORK_DIR: $(Agent.TempDirectory)/forge-install
   strategy:
     matrix:
       linux_amd64_native:
@@ -74,27 +100,7 @@ jobs:
   steps:
     - checkout: none
 
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: "${{ parameters.azureServiceConnection }}"
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          set -eu
-          az extension add --name azure-devops --only-show-errors
-          dl=$(mktemp -d)
-          az artifacts universal download \
-            --organization "$(System.CollectionUri)" \
-            --feed "${{ parameters.hostFeed }}" \
-            --name "dongle-linux-$(arch)" \
-            --version "$(DONGLE_VERSION)" \
-            --path "$dl"
-          mkdir -p dist
-          cp "$dl/dongle-linux-$(arch)" "dist/dongle-linux-$(arch)"
-          chmod 0755 "dist/dongle-linux-$(arch)"
-      displayName: "Download dongle-linux-$(arch)@$(DONGLE_VERSION) from the host feed"
-
-    # ---- QEMU (arm64 leg only) -------------------------------------------
+    # ---- QEMU (arm64 leg only) ---------------------------------------------
 
     - script: |
         set -eu
@@ -105,45 +111,88 @@ jobs:
       condition: and(succeeded(), eq(variables.runner, 'qemu'))
       displayName: "Set up QEMU/binfmt for linux/arm64 emulation"
 
-    # ---- smoke test ------------------------------------------------------
+    # ---- Step 1 (Prerequisites) + Step 2.2 (download) ------------------------
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: "${{ parameters.azureServiceConnection }}"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -eu
+          # Step 1.2. (Step 1.1 — the Azure CLI — is preinstalled on hosted
+          # agents; Step 1.3 `az login` is this task's service connection.)
+          az extension add --name azure-devops --only-show-errors
+
+          # Step 2 (Linux) 2: the guide's download command, feed values
+          # filled in. ARCH is this leg's arch; the user-side step below
+          # re-derives it from `uname -m` per step 1 and asserts they match.
+          ARCH=$(arch)
+          mkdir -p "$(WORK_DIR)" && cd "$(WORK_DIR)"
+          az artifacts universal download \
+            --organization "$(System.CollectionUri)" \
+            --project "${{ parameters.hostProject }}" \
+            --scope project \
+            --feed "${{ parameters.hostFeed }}" \
+            --name "dongle-linux-$ARCH" \
+            --version "$(DONGLE_VERSION)" \
+            --path ./dongle-download
+
+          # Guard against testing the wrong arch: an amd64 binary would
+          # "pass" inside the arm64 container too (the amd64 kernel just
+          # runs it natively).
+          want=$([ "$ARCH" = arm64 ] && echo 'ARM aarch64' || echo 'x86-64')
+          info=$(file "./dongle-download/dongle-linux-$ARCH"); echo "$info"
+          case "$info" in *"$want"*) ;; *) echo "##vso[task.logissue type=error]downloaded dongle-linux-$ARCH is not a $want binary"; exit 1 ;; esac
+      displayName: "Prerequisites + download dongle-linux-$(arch)@$(DONGLE_VERSION) (Step 1, Step 2.2)"
+
+    # ---- Step 2.1/2.3/2.4 (install) + Step 3 (first run), as the user -------
 
     - script: |
-        set -uo pipefail
-        bin="$PWD/dist/dongle-linux-$(arch)"
-        [ -f "$bin" ] || { echo "##vso[task.logissue type=error]missing $bin"; exit 1; }
+        set -eu
+        cd "$(WORK_DIR)"
+        cat >forge-install.sh <<'SCRIPT'
+        # Runs as a user would, in the target environment, from the
+        # directory holding ./dongle-download, with a fresh empty HOME.
+        set -u
 
-        # Guard against testing the wrong arch: an amd64 binary would
-        # "pass" inside the arm64 container too (the amd64 kernel just
-        # runs it natively).
-        want=$([ "$(arch)" = arm64 ] && echo 'ARM aarch64' || echo 'x86-64')
-        info=$(file "$bin"); echo "$info"
-        case "$info" in *"$want"*) ;; *) echo "##vso[task.logissue type=error]$bin is not a $want binary"; exit 1 ;; esac
+        # -- Step 2 (Linux) 1: find your CPU architecture (verbatim) --
+        case "$(uname -m)" in
+          x86_64) ARCH=amd64 ;;
+          aarch64|arm64) ARCH=arm64 ;;
+          *) echo "unsupported architecture: $(uname -m)" ;;
+        esac
+        if [ "${ARCH:-}" != "$EXPECTED_ARCH" ]; then
+          echo "##vso[task.logissue type=error]Step 2.1: uname -m = $(uname -m) gave ARCH=${ARCH:-<unset>}, want $EXPECTED_ARCH"
+          exit 1
+        fi
 
-        # dongle runs with a fresh, throwaway data/home dir on every call,
-        # so each one is a real first run (embedded index + default
-        # plugins unpacked) and the agent's own home is never touched.
-        dongle() {
-          if [ "$(runner)" = qemu ]; then
-            docker run --rm --platform linux/arm64 \
-              -v "$bin:/usr/local/bin/dongle:ro" \
-              -e HOME=/tmp/h -e DONGLE_DATA_DIR=/tmp/h/data -e XDG_CACHE_HOME=/tmp/h/cache \
-              "$(ARM64_RUN_IMAGE)" dongle "$@"
-          else
-            local h; h=$(mktemp -d)
-            HOME="$h" DONGLE_DATA_DIR="$h/data" XDG_CACHE_HOME="$h/cache" "$bin" "$@"
-          fi
-        }
+        # -- Step 2 (Linux) 3: make executable, rename, move onto PATH (verbatim) --
+        set -e
+        chmod +x "./dongle-download/dongle-linux-$ARCH"
+        mkdir -p ~/.local/bin
+        mv "./dongle-download/dongle-linux-$ARCH" ~/.local/bin/dongle
+        rm -rf ./dongle-download
+
+        # -- Step 2 (Linux) 4: put ~/.local/bin on PATH (verbatim) --
+        export PATH="$HOME/.local/bin:$PATH"
+        set +e
 
         failed=0
         fail() { echo "##vso[task.logissue type=error]$*"; failed=1; }
 
-        # run <name> <args...>: run dongle, show its output, check exit 0
-        # and that it printed no error:/warning: diagnostics.
+        # -- Step 3: open a new terminal and run dongle -- each call is a
+        # new shell resolving `dongle` from PATH, like the user's.
+        found=$(bash -c 'command -v dongle')
+        [ "$found" = "$HOME/.local/bin/dongle" ] || fail "new shell resolves dongle to '$found', want $HOME/.local/bin/dongle"
+
         out=$(mktemp) err=$(mktemp)
+        # run <name> <args...>: run dongle in a new shell, show its
+        # output, check exit 0 and no error:/warning: diagnostics.
         run() {
           local name=$1; shift
           echo "===== dongle $* ====="
-          dongle "$@" >"$out" 2>"$err"
+          bash -c 'dongle "$@"' dongle "$@" >"$out" 2>"$err"
           local rc=$?
           echo "--- stdout ---"; cat "$out"
           echo "--- stderr ---"; cat "$err"
@@ -151,26 +200,41 @@ jobs:
           [ "$rc" -eq 0 ] || fail "$name: exit code $rc, want 0"
           ! grep -Eq 'error:|warning:' "$err" || fail "$name: diagnostics on stderr"
         }
-        expect() { grep -Eq -e "$2" "$out" || fail "$1: stdout does not match /$2/"; }
+        expect() { grep -Eq -e "$3" "$2" || fail "$1: $([ "$2" = "$out" ] && echo stdout || echo stderr) does not match /$3/"; }
 
+        # Step 3's expected output. Without a terminal, progress lines
+        # lose their ✓ mark but are otherwise the same.
         run "--version" --version
-        expect "--version" "^dongle[[:space:]]+$(DONGLE_VERSION)\$"
-        # Release builds always embed: on a first run the index comes from
-        # the embedded seed and the embedded default plugins get installed.
-        expect "--version" '^index[[:space:]]+.+\(embedded\)'
-        expect "--version" '^installed plugins:'
+        expect "--version" "$err" '^Initialized plugin index '
+        expect "--version" "$err" '^Installed [^ ]+ '
+        expect "--version" "$err" '^Initialization complete\.'
+        expect "--version" "$out" "^dongle[[:space:]]+$EXPECTED_VERSION\$"
+        expect "--version" "$out" '^index[[:space:]]+.+\(embedded\)'
+        expect "--version" "$out" '^installed plugins:'
+
+        # Setup happens only once: a second run must not redo it.
+        run "--version (second run)" --version
+        ! grep -Eq '^(Initialized plugin index|Installed |Initialization complete)' "$err" || fail "--version (second run): first-run setup ran again"
 
         run "--help" --help
-        expect "--help" 'one CLI, plug in the rest'
-        expect "--help" '^Usage:'
-        expect "--help" 'dongle <plugin> \[args\.\.\.\]'
-        expect "--help" '--version'
+        expect "--help" "$out" 'one CLI, plug in the rest'
+        expect "--help" "$out" '^Usage:'
+        expect "--help" "$out" 'dongle <plugin> \[args\.\.\.\]'
+        expect "--help" "$out" '--version'
 
         [ "$failed" -eq 0 ] || exit 1
-        echo "smoke test passed: linux/$(arch) ($(runner))"
-      displayName: "Smoke test dongle-linux-$(arch) ($(runner))"
+        echo "smoke test passed: linux/$ARCH"
+        SCRIPT
 
-    - publish: dist/dongle-linux-$(arch)
-      artifact: dongle-linux-$(arch)-tested
-      condition: succeededOrFailed()
-      displayName: "Publish tested binary (for debugging)"
+        if [ "$(runner)" = qemu ]; then
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e HOME=/home/user -e EXPECTED_ARCH="$(arch)" -e EXPECTED_VERSION="$(DONGLE_VERSION)" \
+            "$(ARM64_RUN_IMAGE)" bash forge-install.sh
+        else
+          home=$(mktemp -d)
+          env -i HOME="$home" PATH=/usr/local/bin:/usr/bin:/bin \
+            EXPECTED_ARCH="$(arch)" EXPECTED_VERSION="$(DONGLE_VERSION)" \
+            bash forge-install.sh
+        fi
+      displayName: "Install per Forge Linux steps + first run (Step 2.1–2.4, Step 3) — $(arch) ($(runner))"

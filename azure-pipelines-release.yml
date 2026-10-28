@@ -14,9 +14,10 @@
 # no-embed release path.
 #
 # After every BuildAndPublish leg succeeds, TestLinux smoke-tests the two
-# linux packages exactly as published (downloaded back from the host feed
-# at DONGLE_VERSION): linux/amd64 natively, linux/arm64 under QEMU
-# emulation (see templates/test-linux-job.yml).
+# linux packages exactly as published, installing them the way the Forge
+# getting-started guide's Linux steps tell users to (download from the host
+# feed at DONGLE_VERSION, ~/.local/bin, first run): linux/amd64 natively,
+# linux/arm64 under QEMU emulation (see templates/test-linux-job.yml).
 trigger: none
 pr: none
 
