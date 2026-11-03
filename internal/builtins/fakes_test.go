@@ -209,3 +209,22 @@ func (p *fakePayload) MarkDefaultsBootstrapped() error {
 	p.marked = true
 	return p.markErr
 }
+
+const host, proto = "1.0.0", "v1"
+
+var deploy = plugin{name: "deploy", version: "v1.2.0", host: ">=0.1.0", protocol: "v1"}
+
+func writeIndexFile(t *testing.T, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(state.DataDir(), "index", "plugins", name+".yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// quiet runs fn with output captured and discarded, returning its code.
+func quiet(t *testing.T, fn func() int) int {
+	t.Helper()
+	var code int
+	testutil.Capture(t, func() { code = fn() })
+	return code
+}
