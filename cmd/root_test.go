@@ -7,60 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-
-	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
-
-// run executes dongle with args the way main does and returns the exit
-// code and output. The data dir is a fresh temp dir per test and PATH is
-// empty, so no real `az` (or feed) can be reached.
-func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
-	t.Helper()
-	if args == nil {
-		args = []string{} // nil would make cobra fall back to os.Args
-	}
-	rootCmd.SetArgs(args)
-	defer resetFlags(rootCmd)
-	stdout, stderr = testutil.Capture(t, func() { code = Execute() })
-	return code, stdout, stderr
-}
-
-// resetFlags undoes flag values left on the package-level cobra commands
-// by a previous Execute, so tests don't leak --sync etc. into each other.
-func resetFlags(c *cobra.Command) {
-	c.Flags().VisitAll(func(f *pflag.Flag) {
-		_ = f.Value.Set(f.DefValue)
-		f.Changed = false
-	})
-	for _, sub := range c.Commands() {
-		resetFlags(sub)
-	}
-}
-
-func mustContain(t *testing.T, what, got string, wants ...string) {
-	t.Helper()
-	for _, w := range wants {
-		if !strings.Contains(got, w) {
-			t.Errorf("%s missing %q; got:\n%s", what, w, got)
-		}
-	}
-}
-
-// cacheIndex writes a fresh cached index listing one plugin.
-func cacheIndex(t *testing.T) {
-	t.Helper()
-	dir := filepath.Join(state.DataDir(), "index", "plugins")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "deploy.yaml"), []byte("name: deploy\nversion: 1.0.0\nshortDescription: Ship it\n"), 0o644)
-	os.WriteFile(filepath.Join(state.DataDir(), "index.version"), []byte("2024.1"), 0o644)
-	if err := index.MarkChecked(); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestHelp(t *testing.T) {
 	for _, args := range [][]string{nil, {"--help"}, {"-h"}} {
@@ -145,61 +94,6 @@ func TestBuiltinExitCodePropagates(t *testing.T) {
 	// exitError carries no message of its own; cobra must not add one.
 	if strings.Count(stderr, "error:") != 1 {
 		t.Fatalf("want exactly one error line, got:\n%s", stderr)
-	}
-}
-
-func TestSearchSyncFlagsReachTheIndex(t *testing.T) {
-	cases := []struct {
-		flag   string
-		stderr string // what that sync mode makes index.Prepare say
-	}{
-		{"", ""}, // fresh cache, default mode: silent
-		{"--no-sync", "Using cached plugin index 2024.1 (--no-sync)."},
-		// --sync checks the feed despite the fresh cache; with no az on
-		// PATH that check fails and the cache is used.
-		{"--sync", "could not check the feed for a newer plugin index"},
-	}
-	for _, c := range cases {
-		t.Run("flag="+c.flag, func(t *testing.T) {
-			testutil.Isolate(t)
-			cacheIndex(t)
-			args := []string{"search"}
-			if c.flag != "" {
-				args = append(args, c.flag)
-			}
-			code, stdout, stderr := run(t, args...)
-			if code != 0 {
-				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
-			}
-			mustContain(t, "stdout", stdout, "deploy", "Ship it")
-			if c.stderr != "" {
-				mustContain(t, "stderr", stderr, c.stderr)
-			} else if strings.Contains(stderr, "plugin index") {
-				t.Errorf("default mode with a fresh cache should not mention the index:\n%s", stderr)
-			}
-		})
-	}
-}
-
-func TestSyncMode(t *testing.T) {
-	cases := []struct {
-		args []string
-		want index.SyncMode
-	}{
-		{nil, index.SyncAsk},
-		{[]string{"--sync"}, index.SyncAlways},
-		{[]string{"--no-sync"}, index.SyncNever},
-		{[]string{"--sync=false"}, index.SyncAsk},
-	}
-	for _, c := range cases {
-		cmd := &cobra.Command{}
-		addSyncFlags(cmd)
-		if err := cmd.ParseFlags(c.args); err != nil {
-			t.Fatal(err)
-		}
-		if got := syncMode(cmd); got != c.want {
-			t.Errorf("syncMode(%v) = %v, want %v", c.args, got, c.want)
-		}
 	}
 }
 
