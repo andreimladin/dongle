@@ -1,0 +1,138 @@
+# Job template: smoke test of a published dongle linux/amd64 release,
+# installed the way the Forge getting-started guide's Linux steps
+# tell users to (docs/forge/getting-started/index.md):
+#
+#   Step 1 — Prerequisites   az + azure-devops extension; `az login` is the
+#                            service connection (AzureCLI@2)
+#   Step 2 — Installation    (Linux) 1. find ARCH from `uname -m`
+#                                    2. az artifacts universal download
+#                                    3. chmod +x, mv to ~/.local/bin/dongle
+#                                    4. put ~/.local/bin on PATH
+#   Step 3 — First run       `dongle --version` in a new shell
+#
+# plus `dongle --help`. The guide's commands are used verbatim, except that
+# the download has the feed values filled in and takes `dongleVersion`
+# (default "*" = latest, as in the guide). If you change those docs steps,
+# change this template too.
+#
+# Only linux/amd64 is tested, natively on a Microsoft-hosted ubuntu-latest
+# agent (amd64). linux/arm64 is not tested here.
+#
+# Used by azure-pipelines-test-linux.yml.
+
+parameters:
+  - name: dependsOn
+    type: object
+    default: []
+  # Version to download and assert in `dongle --version`. "*" downloads
+  # the latest (as the guide does) and only asserts it looks like x.y.z.
+  - name: dongleVersion
+    type: string
+    default: "*"
+  - name: hostFeed
+    type: string
+  # Azure DevOps project of the (project-scoped) host feed — the guide's
+  # `--project`. Defaults to the project this pipeline runs in.
+  # TODO: set explicitly if the host feed lives in another project.
+  - name: hostProject
+    type: string
+    default: $(System.TeamProject)
+  # Service connection with read access to hostFeed.
+  - name: azureServiceConnection
+    type: string
+
+jobs:
+- job: TestLinux
+  dependsOn: ${{ parameters.dependsOn }}
+  displayName: "Smoke test linux/amd64 (Forge install steps)"
+  pool:
+    vmImage: ubuntu-latest
+  variables:
+    DONGLE_VERSION: ${{ parameters.dongleVersion }}
+  steps:
+    - checkout: none
+
+    - task: AzureCLI@2
+      displayName: "Install dongle per Forge Linux steps + first run"
+      inputs:
+        azureSubscription: "${{ parameters.azureServiceConnection }}"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -euo pipefail
+          # A fresh, empty HOME stands in for a new user's machine.
+          export HOME="$(Agent.TempDirectory)/forge-home"
+          mkdir -p "$HOME" && cd "$HOME"
+
+          # -- Step 1.2 (1.1: az is preinstalled; 1.3: the service connection) --
+          az extension add --name azure-devops --only-show-errors
+
+          # -- Step 2 (Linux) 1: find your CPU architecture --
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64|arm64) ARCH=arm64 ;;
+            *) echo "unsupported architecture: $(uname -m)" ;;
+          esac
+          [ "${ARCH:-}" = amd64 ] || { echo "##vso[task.logissue type=error]Step 2.1 gave ARCH=${ARCH:-<unset>}, want amd64"; exit 1; }
+
+          # -- Step 2 (Linux) 2: download --
+          az artifacts universal download \
+            --organization "$(System.CollectionUri)" \
+            --project "${{ parameters.hostProject }}" \
+            --scope project \
+            --feed "${{ parameters.hostFeed }}" \
+            --name "dongle-linux-$ARCH" \
+            --version "$(DONGLE_VERSION)" \
+            --path ./dongle-download
+
+          # -- Step 2 (Linux) 3: make executable, rename, move onto PATH --
+          chmod +x "./dongle-download/dongle-linux-$ARCH"
+          mkdir -p ~/.local/bin
+          mv "./dongle-download/dongle-linux-$ARCH" ~/.local/bin/dongle
+          rm -rf ./dongle-download
+
+          # -- Step 2 (Linux) 4: put ~/.local/bin on PATH --
+          export PATH="$HOME/.local/bin:$PATH"
+
+          # -- Step 3: first run, in a new shell --
+          set +e
+          failed=0
+          fail() { echo "##vso[task.logissue type=error]$*"; failed=1; }
+
+          found=$(bash -c 'command -v dongle')
+          [ "$found" = "$HOME/.local/bin/dongle" ] || fail "new shell resolves dongle to '$found', want $HOME/.local/bin/dongle"
+
+          out=$(mktemp) err=$(mktemp)
+          # run <args...>: run dongle in a new shell, show its output, check
+          # exit 0 and no error:/warning: diagnostics.
+          run() {
+            echo "===== dongle $* ====="
+            bash -c 'dongle "$@"' dongle "$@" >"$out" 2>"$err"
+            local rc=$?
+            echo "--- stdout ---"; cat "$out"
+            echo "--- stderr ---"; cat "$err"
+            echo "--- exit $rc ---"
+            [ "$rc" -eq 0 ] || fail "dongle $*: exit code $rc, want 0"
+            ! grep -Eq 'error:|warning:' "$err" || fail "dongle $*: diagnostics on stderr"
+          }
+          expect() { grep -Eq -e "$2" "$1" || fail "$([ "$1" = "$out" ] && echo stdout || echo stderr) does not match /$2/"; }
+
+          # Step 3's expected output (without a terminal, progress lines
+          # lose their ✓ mark).
+          run --version
+          expect "$err" '^Initialized plugin index '
+          expect "$err" '^Initialization complete\.'
+          if [ "$(DONGLE_VERSION)" = "*" ]; then
+            expect "$out" '^dongle[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+'
+          else
+            expect "$out" "^dongle[[:space:]]+$(DONGLE_VERSION)\$"
+          fi
+          expect "$out" '^index[[:space:]]+.+\(embedded\)'
+          expect "$out" '^installed plugins:'
+
+          run --help
+          expect "$out" '^Usage:'
+          expect "$out" 'dongle <plugin> \[args\.\.\.\]'
+
+          [ "$failed" -eq 0 ] || exit 1
+          echo "smoke test passed: linux/amd64"

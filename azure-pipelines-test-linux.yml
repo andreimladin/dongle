@@ -1,0 +1,45 @@
+# Smoke test of the published dongle linux/amd64 release: installs it from
+# the host feed the way the Forge getting-started guide's Linux steps tell
+# users to, then checks the first run (`dongle --version`) and
+# `dongle --help`. All the logic lives in templates/test-linux-job.yml;
+# this pipeline only decides when it runs and which version it tests.
+#
+# Runs:
+#   - automatically after each successful run of the release pipeline
+#     (pipeline-completion trigger below), testing the latest version in
+#     the feed, i.e. the one just released;
+#   - manually (Run pipeline), optionally for a specific version.
+# Never on pushes or PRs: there's nothing in a commit for it to test.
+trigger: none
+pr: none
+
+resources:
+  pipelines:
+    - pipeline: release
+      # TODO: set to the release pipeline's name as shown in Azure DevOps
+      # (the pipeline defined by azure-pipelines-release.yml).
+      source: "TODO-release-pipeline-name"
+      trigger:
+        branches:
+          include:
+            - release/*
+
+parameters:
+  - name: dongleVersion
+    displayName: "dongle version to test (* = latest in the feed)"
+    type: string
+    default: "*"
+
+variables:
+  # TODO: set these to your real host feed and service connection (same
+  # values as azure-pipelines-release.yml). AZURE_SERVICE_CONNECTION needs
+  # read access to HOST_FEED.
+  HOST_FEED: "TODO-host-feed-name"
+  AZURE_SERVICE_CONNECTION: "TODO-azure-service-connection-name"
+
+jobs:
+  - template: templates/test-linux-job.yml
+    parameters:
+      dongleVersion: ${{ parameters.dongleVersion }}
+      hostFeed: $(HOST_FEED)
+      azureServiceConnection: $(AZURE_SERVICE_CONNECTION)
