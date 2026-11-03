@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -46,13 +47,19 @@ func Capture(t testing.TB, fn func()) (stdout, stderr string) {
 	return outBuf.String(), errBuf.String()
 }
 
-// Isolate points the data dir at a fresh temp dir and empties PATH for
-// the duration of the test, so nothing can touch the real ~/.dongle or
-// shell out to a real `az` (and through it the real feed).
+// Isolate points the home directory at a fresh temp dir and empties PATH
+// for the duration of the test, so nothing can touch the real ~/.dongle
+// (dongle's data dir is always ~/.dongle) or shell out to a real `az` (and
+// through it the real feed). It returns the data dir, already created.
 func Isolate(t *testing.T) (dataDir string) {
 	t.Helper()
-	dataDir = t.TempDir()
-	t.Setenv("DONGLE_DATA_DIR", dataDir)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // what os.UserHomeDir reads on Windows
 	t.Setenv("PATH", t.TempDir())
+	dataDir = filepath.Join(home, ".dongle")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return dataDir
 }

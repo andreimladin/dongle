@@ -31,7 +31,7 @@ const manifestJSON = `{
 }`
 
 func TestPendingDefaults(t *testing.T) {
-	t.Setenv("DONGLE_DATA_DIR", t.TempDir())
+	testutil.Isolate(t)
 
 	withPayload(t, fstest.MapFS{})
 	if d := PendingDefaults(); d != nil {
@@ -59,7 +59,7 @@ func TestPendingDefaults(t *testing.T) {
 }
 
 func TestInstallDefault(t *testing.T) {
-	t.Setenv("DONGLE_DATA_DIR", t.TempDir())
+	testutil.Isolate(t)
 	orig := os.Args[0]
 	os.Args[0] = "/usr/bin/acme"
 	defer func() { os.Args[0] = orig }()

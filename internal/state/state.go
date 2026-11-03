@@ -9,8 +9,9 @@
 // (entrypoint, requires) are recorded into state.json so dispatch never has
 // to read anything but this file.
 //
-// Set DONGLE_DATA_DIR to override the root (used in tests so we don't touch the
-// real ~/.dongle).
+// The root is always ~/.dongle: there is deliberately no environment
+// variable to relocate it. (Tests isolate themselves by pointing the home
+// directory at a temp dir; see internal/testutil.Isolate.)
 package state
 
 import (
@@ -37,9 +38,6 @@ type State struct {
 }
 
 func dataDir() string {
-	if d := os.Getenv("DONGLE_DATA_DIR"); d != "" {
-		return d
-	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".dongle")
 }

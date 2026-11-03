@@ -86,7 +86,7 @@ Installs plugin `<name>` from the index:
    <version> has no build for <os>/<arch>`);
 5. download that package from the manifest's feed at the manifest's
    version; it must contain exactly one file;
-6. place it at `<data dir>/plugins/<name>/<version>/` and record it in
+6. place it at `~/.dongle/plugins/<name>/<version>/` and record it in
    `state.json`.
 
 On success it prints `✓ Installed <name> <version> (run it with: dongle
@@ -227,16 +227,18 @@ Builtin names always take precedence over plugin names.
 
 | variable | effect |
 |---|---|
-| `DONGLE_DATA_DIR` | data folder (default `~/.dongle`). Holds the index cache, installed plugins and `state.json` |
 | `NO_COLOR` | if set (to any value), disables colors |
 | `TERM=dumb` | disables colors |
 | `AZURE_DEVOPS_EXT_PAT` | read by the Azure CLI (not by dongle) to authenticate without `az login`, e.g. in CI |
-| `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`, `DONGLE_INDEX_PACKAGE` | developer overrides for where the index package is read from (organization, project for project-scoped feeds, feed, package name; default package `dongle-index`). Not needed with release builds |
+
+dongle reads no configuration of its own from the environment: the data
+folder is always `~/.dongle`, and the index feed is fixed when the binary is
+built.
 
 ## Data folder layout
 
 ```
-<data dir>/
+~/.dongle/
   index/plugins/<name>.yaml     # cached index manifests
   index.version                 # cached index version
   index.origin                  # "embedded" or "fetched"

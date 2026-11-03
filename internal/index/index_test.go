@@ -84,20 +84,29 @@ func TestAzError(t *testing.T) {
 	}
 }
 
-func TestFeedIdentityEnvOverrides(t *testing.T) {
-	SetDefaults("o", "p", "f", "pkg")
-	for _, k := range []string{"DONGLE_INDEX_ORG", "DONGLE_INDEX_PROJECT", "DONGLE_INDEX_FEED", "DONGLE_INDEX_PACKAGE"} {
-		t.Setenv(k, "")
+func TestFeedIdentityIgnoresEnvironment(t *testing.T) {
+	e := newEnv(t)
+	e.feed.latest = "1.0.0"
+	SetDefaults("built-org", "", "built-feed", "built-pkg")
+	// These used to override the built-in feed identity; they must not.
+	t.Setenv("DONGLE_INDEX_ORG", "evil-org")
+	t.Setenv("DONGLE_INDEX_PROJECT", "evil-project")
+	t.Setenv("DONGLE_INDEX_FEED", "evil-feed")
+	t.Setenv("DONGLE_INDEX_PACKAGE", "built-pkg-evil")
+
+	if _, err := LatestVersion(); err != nil {
+		t.Fatal(err)
 	}
-	if got := []string{indexOrg(), indexProject(), indexFeed(), indexPackage()}; !reflect.DeepEqual(got, []string{"o", "p", "f", "pkg"}) {
-		t.Fatalf("defaults: %v", got)
+	e.publish(t, "1.0.0", nil)
+	l, err := Fetch("1.0.0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("DONGLE_INDEX_ORG", "O2")
-	t.Setenv("DONGLE_INDEX_PROJECT", "P2")
-	t.Setenv("DONGLE_INDEX_FEED", "F2")
-	t.Setenv("DONGLE_INDEX_PACKAGE", "PKG2")
-	if got := []string{indexOrg(), indexProject(), indexFeed(), indexPackage()}; !reflect.DeepEqual(got, []string{"O2", "P2", "F2", "PKG2"}) {
-		t.Fatalf("overrides: %v", got)
+	l.Discard()
+	for _, call := range e.feed.calls {
+		args := strings.Join(call, " ")
+		mustContain(t, "az args", args, "https://dev.azure.com/built-org", "built-feed", "built-pkg")
+		mustNotContain(t, "az args", args, "evil")
 	}
 }
 
@@ -311,7 +320,7 @@ func TestPlatformFor(t *testing.T) {
 // --- cache metadata -------------------------------------------------------------
 
 func TestIsFresh(t *testing.T) {
-	t.Setenv("DONGLE_DATA_DIR", t.TempDir())
+	testutil.Isolate(t)
 
 	if IsFresh(CheckTTL) {
 		t.Fatal("never-checked cache reads as fresh")

@@ -99,32 +99,30 @@ $env:DONGLE_VERSION="1.0.0"; $env:DONGLE_PROTOCOL="v1"; $env:DONGLE_PLUGIN_NAME=
 
 ### Full check: install and run through dongle
 
-You'll create a throwaway dongle data folder that holds a "local index"
-with just your manifest. dongle then installs from that local index instead
-of the real one.
+You'll temporarily turn your dongle index cache (in `~/.dongle`) into a
+"local index" that also lists your manifest. dongle then installs from that
+local index instead of the real one. Step 4 puts the real index back.
 
-**1. Create a sandbox data folder with a local index.**
+**1. Add your manifest to the local index.**
 
 macOS:
 
 ```sh
-export DONGLE_DATA_DIR="$PWD/dongle-sandbox"
-mkdir -p "$DONGLE_DATA_DIR/index/plugins"
-cp plugins/<name>.yaml "$DONGLE_DATA_DIR/index/plugins/"
-printf 0.0.0-local > "$DONGLE_DATA_DIR/index.version"
+mkdir -p ~/.dongle/index/plugins
+cp plugins/<name>.yaml ~/.dongle/index/plugins/
+printf 0.0.0-local > ~/.dongle/index.version
 ```
 
 Windows (PowerShell):
 
 ```powershell
-$env:DONGLE_DATA_DIR = "$PWD\dongle-sandbox"
-New-Item -ItemType Directory -Force "$env:DONGLE_DATA_DIR\index\plugins" | Out-Null
-Copy-Item plugins\<name>.yaml "$env:DONGLE_DATA_DIR\index\plugins\"
-Set-Content -NoNewline "$env:DONGLE_DATA_DIR\index.version" "0.0.0-local"
+New-Item -ItemType Directory -Force "$HOME\.dongle\index\plugins" | Out-Null
+Copy-Item plugins\<name>.yaml "$HOME\.dongle\index\plugins\"
+Set-Content -NoNewline "$HOME\.dongle\index.version" "0.0.0-local"
 ```
 
-`DONGLE_DATA_DIR` points dongle at the sandbox instead of your real
-`~/.dongle`. It applies only to the current terminal.
+Marking the index as version `0.0.0-local` makes any real index newer than
+it, so step 4's `dongle update` is guaranteed to replace it.
 
 **2. Install from the local index.** Always pass `--no-sync`. Without it,
 dongle checks the feed, sees that the real index is newer than
@@ -151,11 +149,15 @@ dongle --version                      # lists <name> with its version
 Check that prompts, colors and exit codes behave as expected.
 
 **4. Iterate and clean up.** After changing the manifest, copy it into the
-sandbox again, then run `dongle remove <name>` followed by
+local index again (step 1), then run `dongle remove <name>` followed by
 `dongle install <name> --no-sync`.
 
-When you're done, delete the sandbox folder and close the terminal (or
-unset `DONGLE_DATA_DIR`).
+When you're done, remove your plugin and restore the real index:
+
+```sh
+dongle remove <name>
+dongle update                         # replaces the local index with the real one
+```
 
 ### Common failures
 

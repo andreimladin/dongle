@@ -22,9 +22,9 @@
 // The feed package identity (org/project/feed/package name) is a
 // build-time build input — baked in via -ldflags at build time (see
 // cmd/root.go and configs/build.yaml) and wired into this package once at
-// startup via SetDefaults. DONGLE_INDEX_ORG / DONGLE_INDEX_PROJECT /
-// DONGLE_INDEX_FEED / DONGLE_INDEX_PACKAGE override them as dev escape
-// hatches; normal users never set them.
+// startup via SetDefaults. It deliberately can't be overridden at runtime
+// (no environment variables): a binary only ever reads the index it was
+// built for.
 package index
 
 import (
@@ -54,11 +54,9 @@ import (
 
 // injected holds the index package's Azure Artifacts feed coordinates —
 // wired in once via SetDefaults from the build-time-injected values
-// (cmd/root.go is the single source of these). Named fields rather than
-// package-level vars so they don't collide with the indexOrg()/etc.
-// accessors below. Downloading shells out to the system `az` CLI, which
-// authenticates however it's already logged in (or AZURE_DEVOPS_EXT_PAT in
-// CI).
+// (cmd/root.go is the single source of these). Downloading shells out to
+// the system `az` CLI, which authenticates however it's already logged in
+// (or AZURE_DEVOPS_EXT_PAT in CI).
 var injected struct {
 	indexOrg     string
 	indexProject string
@@ -100,34 +98,6 @@ type terminalPrompter struct{}
 
 func (terminalPrompter) CanPrompt() bool       { return ui.StdinIsTerminal() }
 func (terminalPrompter) Confirm(q string) bool { return ui.Confirm(q) }
-
-func indexOrg() string {
-	if v := os.Getenv("DONGLE_INDEX_ORG"); v != "" {
-		return v
-	}
-	return injected.indexOrg
-}
-
-func indexProject() string {
-	if v := os.Getenv("DONGLE_INDEX_PROJECT"); v != "" {
-		return v
-	}
-	return injected.indexProject
-}
-
-func indexFeed() string {
-	if v := os.Getenv("DONGLE_INDEX_FEED"); v != "" {
-		return v
-	}
-	return injected.indexFeed
-}
-
-func indexPackage() string {
-	if v := os.Getenv("DONGLE_INDEX_PACKAGE"); v != "" {
-		return v
-	}
-	return injected.indexPackage
-}
 
 // cacheDir is the extracted archive's root: it holds a "plugins/" subdir
 // of manifests, mirroring index.tar.gz's own layout (see
@@ -355,13 +325,13 @@ func LatestVersion() (string, error) {
 	if err := az.LookPath(); err != nil {
 		return "", errAzMissing
 	}
-	route := []string{"feedId=" + indexFeed()}
-	if indexProject() != "" {
-		route = append(route, "project="+indexProject())
+	route := []string{"feedId=" + injected.indexFeed}
+	if injected.indexProject != "" {
+		route = append(route, "project="+injected.indexProject)
 	}
 	args := []string{
 		"devops", "invoke",
-		"--organization", "https://dev.azure.com/" + indexOrg(),
+		"--organization", "https://dev.azure.com/" + injected.indexOrg,
 		"--area", "Packaging",
 		"--resource", "Packages",
 		"--api-version", "7.1",
@@ -371,15 +341,15 @@ func LatestVersion() (string, error) {
 	args = append(args,
 		"--query-parameters",
 		"protocolType=UPack",
-		"packageNameQuery="+indexPackage(),
+		"packageNameQuery="+injected.indexPackage,
 		"includeAllVersions=false",
 		"--output", "json",
 	)
 	var stdout, stderr bytes.Buffer
 	if err := az.Run(args, &stdout, &stderr); err != nil {
-		return "", AzError("az query latest "+indexPackage()+" version", err, stderr.Bytes())
+		return "", AzError("az query latest "+injected.indexPackage+" version", err, stderr.Bytes())
 	}
-	return parseLatestVersion(stdout.Bytes(), indexPackage())
+	return parseLatestVersion(stdout.Bytes(), injected.indexPackage)
 }
 
 // parseLatestVersion picks pkg's latest version out of a "Get Packages"
@@ -416,7 +386,7 @@ func parseLatestVersion(body []byte, pkg string) (string, error) {
 			return best, nil
 		}
 	}
-	return "", fmt.Errorf("package %s has no published versions in feed %s", pkg, indexFeed())
+	return "", fmt.Errorf("package %s has no published versions in feed %s", pkg, injected.indexFeed)
 }
 
 var errAzMissing = errors.New("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
@@ -532,9 +502,9 @@ func downloadArchive(destDir, version string) (string, error) {
 	}
 	args := []string{
 		"artifacts", "universal", "download",
-		"--organization", "https://dev.azure.com/" + indexOrg(),
-		"--feed", indexFeed(),
-		"--name", indexPackage(),
+		"--organization", "https://dev.azure.com/" + injected.indexOrg,
+		"--feed", injected.indexFeed,
+		"--name", injected.indexPackage,
 		// "*" resolves to the latest published version — a feature specific
 		// to Universal Packages (unlike other Azure Artifacts package
 		// types). Freshness checks resolve the version first via
@@ -543,14 +513,14 @@ func downloadArchive(destDir, version string) (string, error) {
 		"--version", version,
 		"--path", destDir,
 	}
-	if indexProject() != "" {
-		args = append(args, "--project", indexProject(), "--scope", "project")
+	if injected.indexProject != "" {
+		args = append(args, "--project", injected.indexProject, "--scope", "project")
 	}
 	// az's stderr is captured rather than inherited so it can't garble a
 	// spinner; it's surfaced in the error if the download fails.
 	var stderr bytes.Buffer
 	if err := az.Run(args, nil, &stderr); err != nil {
-		return "", AzError("az download "+indexPackage()+"@"+version, err, stderr.Bytes())
+		return "", AzError("az download "+injected.indexPackage+"@"+version, err, stderr.Bytes())
 	}
 
 	entries, err := os.ReadDir(destDir)
@@ -564,7 +534,7 @@ func downloadArchive(destDir, version string) (string, error) {
 		}
 	}
 	if len(files) != 1 {
-		return "", fmt.Errorf("package %s contains %d files, expected exactly 1", indexPackage(), len(files))
+		return "", fmt.Errorf("package %s contains %d files, expected exactly 1", injected.indexPackage, len(files))
 	}
 	return filepath.Join(destDir, files[0]), nil
 }

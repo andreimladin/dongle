@@ -17,15 +17,15 @@ import (
 // Build-time build inputs, injected via -ldflags at build time (see
 // scripts/build.sh and configs/build.yaml — the human-edited source of
 // truth that script bakes these values from). A plain `go build ./cmd`
-// leaves them at these defaults: hostVersion "dev", no index feed identity
-// (DONGLE_INDEX_ORG/DONGLE_INDEX_FEED/DONGLE_INDEX_PACKAGE are then
-// required to use `dongle update` and the index-reading commands).
+// leaves them at these defaults: hostVersion "dev" and no index feed
+// identity, so `dongle update` and the index-reading commands need the
+// feed stamped in with -ldflags -X (there are no runtime overrides).
 var (
 	hostVersion  = "dev"
-	indexOrg     = ""             // injected at build; env DONGLE_INDEX_ORG overrides
-	indexProject = ""             // injected at build; env DONGLE_INDEX_PROJECT overrides; empty means an org-scoped feed
-	indexFeed    = ""             // injected at build; env DONGLE_INDEX_FEED overrides
-	indexPackage = "dongle-index" // injected at build; env DONGLE_INDEX_PACKAGE overrides
+	indexOrg     = ""             // injected at build
+	indexProject = ""             // injected at build; empty means an org-scoped feed
+	indexFeed    = ""             // injected at build
+	indexPackage = "dongle-index" // injected at build
 )
 
 // protocol is the host<->plugin contract version. It is not a build

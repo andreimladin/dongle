@@ -29,7 +29,10 @@ go build ./...      # builds the host (examples/ is a separate module)
 sh demo.sh          # local-dir install lifecycle, end to end
 ```
 
-`demo.sh` isolates state under `./dist` via `DONGLE_DATA_DIR`.
+`demo.sh` isolates state under `./dist` by pointing `HOME` at
+`./dist/home` (dongle's data dir is always `~/.dongle`). Pass
+`INDEX_ORG`/`INDEX_FEED` (and optionally `INDEX_PROJECT`/`INDEX_PACKAGE`) to
+have it build with that index feed baked in and run `update`/`search`.
 
 ### Commands
 
@@ -74,10 +77,10 @@ the host↔plugin contract version, stays a `const`), stamped in at build
 time via `-ldflags -X`:
 
 - A plain `go build ./cmd` leaves them at their zero-value defaults:
-  `hostVersion` is `"dev"` and no index org/feed is baked in — set
-  `DONGLE_INDEX_ORG`, `DONGLE_INDEX_FEED` (and optionally
-  `DONGLE_INDEX_PROJECT`/`DONGLE_INDEX_PACKAGE`) at runtime to use `dongle
-  update` and the index-reading commands locally.
+  `hostVersion` is `"dev"` and no index org/feed is baked in. To use
+  `dongle update` and the index-reading commands locally, stamp the feed in
+  yourself, e.g. `go build -ldflags "-X main.indexOrg=<org> -X
+  main.indexFeed=<feed>" ./cmd` (there are no runtime overrides).
 - `scripts/build.sh`'s `build_binary` stamps all five, with the index feed
   identity read from `configs/build.yaml` (via `tools/readconfig` — see
   "Embedded default plugins" below) — the script itself hardcodes none of it.
@@ -408,12 +411,12 @@ copy them to that repo's root.
 How the index is released, cached and refreshed is described in
 [docs/forge/explanation/design.md](docs/forge/explanation/design.md#the-index-a-released-archive-not-a-live-repo).
 
-Dev overrides: `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`,
-and `DONGLE_INDEX_PACKAGE` each override the corresponding value injected at
-build time from `configs/build.yaml`'s `index:` section; a plain `go build
-./cmd` has no index org/feed baked in at all, so at least `DONGLE_INDEX_ORG`
-and `DONGLE_INDEX_FEED` are required to use `dongle update` and the index-reading
-commands.
+The index feed identity comes only from the values injected at build time
+from `configs/build.yaml`'s `index:` section; nothing overrides it at runtime
+(there are deliberately no environment variables for it). A plain `go build
+./cmd` has no index org/feed baked in at all, so `dongle update` and the
+index-reading commands need at least `-X main.indexOrg=...` and
+`-X main.indexFeed=...` in `-ldflags`.
 
 ## Before you publish this repo
 

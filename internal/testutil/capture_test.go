@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,8 +33,15 @@ func TestCaptureLargeOutputDoesNotBlock(t *testing.T) {
 
 func TestIsolate(t *testing.T) {
 	dir := Isolate(t)
-	if got := os.Getenv("DONGLE_DATA_DIR"); got != dir {
-		t.Fatalf("DONGLE_DATA_DIR = %q, want %q", got, dir)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".dongle"); dir != want {
+		t.Fatalf("data dir = %q, want %q under the isolated home", dir, want)
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		t.Fatalf("data dir not created: %v", err)
 	}
 	if _, err := exec.LookPath("az"); err == nil {
 		t.Fatal("az is still resolvable on PATH")

@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/andreimladin/dongle/internal/state"
+	"github.com/andreimladin/dongle/internal/testutil"
 )
 
 // A plain build embeds nothing: first-run initialization must find nothing
 // to do and must not write anything to the data dir.
 func TestPlainBuildEmbedsNothing(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DONGLE_DATA_DIR", dir)
+	dir := testutil.Isolate(t)
 
 	if d := PendingDefaults(); len(d) != 0 {
 		t.Fatalf("PendingDefaults() = %v, want none", d)
