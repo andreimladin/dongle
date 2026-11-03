@@ -133,8 +133,8 @@ This happens on the first run of any command, `dongle --help` included.
 
 ## Local data
 
-Everything lives under one data folder, `~/.dongle` (or `DONGLE_DATA_DIR` if
-set):
+Everything lives under one data folder, `~/.dongle` (it can't be
+relocated):
 
 ```
 ~/.dongle/

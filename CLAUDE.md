@@ -26,15 +26,17 @@ sh demo.sh                                        # full end-to-end walkthrough
 behind small seams swapped for fakes in tests: `internal/azcli.Runner` (the `az`
 CLI, used by `internal/index` and `internal/builtins`), `index.prompt` (the
 update prompt) and `dispatch.runner` (plugin exec). Tests use
-`internal/testutil.Isolate` (temp data dir, empty `PATH`, so no real `az` or feed)
+`internal/testutil.Isolate` (temp `HOME` so `~/.dongle` is a temp dir, empty
+`PATH`, so no real `az` or feed)
 and `testutil.Capture` (stdout/stderr).
 
 `demo.sh` builds the host and the sample `deploy` plugin, stages a plugin
 "release" dir (binary + `plugin.json`), then runs through
-install → run-before-login (expected failure) → login → run → uninstall. It sets
-`DONGLE_DATA_DIR=$PWD/dist/dongle-home` so it never touches a real
-`~/.local/share/dongle`. Use the same env var when manually exercising the CLI to
-avoid polluting your real plugin state.
+install → run-before-login (expected failure) → login → run → uninstall. The data
+dir is always `~/.dongle` (no environment override), so `demo.sh` sets
+`HOME=$PWD/dist/home` to never touch your real one; do the same when manually
+exercising the CLI (keep `AZURE_CONFIG_DIR` pointing at your real `~/.azure` if you
+need `az`). The index feed identity is likewise build-time only (`-ldflags -X`).
 
 ## Architecture
 
@@ -91,7 +93,7 @@ keep this contract in sync with the README and `pkg/pluginsdk`.
 | `pkg/pluginsdk` | optional helper library for Go-authored plugins (`LoadContext`, `Token`, `Main`) |
 | `plugins/deploy` | sample plugin demonstrating both `injectAs` modes, using `pluginsdk` |
 
-### On-disk layout (XDG, overridable via `DONGLE_DATA_DIR`)
+### On-disk layout (always `~/.dongle`; not overridable)
 
 ```
 $XDG_DATA_HOME/dongle/

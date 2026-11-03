@@ -34,9 +34,8 @@ import (
 // incompatible with this host, or no build for this os/arch — is skipped
 // with a warning instead: retrying wouldn't help.
 //
-// A build with no index feed identity (a plain `go build ./cmd` without
-// DONGLE_INDEX_* set) has nothing to download from, so for it Initialize
-// is a no-op.
+// A build with no index feed identity baked in (a plain `go build ./cmd`)
+// has nothing to download from, so for it Initialize is a no-op.
 func Initialize(hostVersion, protocol string) int {
 	st, err := state.Load()
 	if err != nil {
