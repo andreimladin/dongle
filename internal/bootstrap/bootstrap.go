@@ -145,7 +145,7 @@ func installEmbeddedDefault(st *state.State, d Default) error {
 
 	entrypoint := d.Entrypoint
 	if entrypoint == "" {
-		entrypoint = hostBinaryName() + "-" + d.Name
+		entrypoint = state.EntrypointName(d.Name)
 	}
 
 	verDir := state.PluginVersionDir(d.Name, d.Version)
@@ -167,15 +167,4 @@ func installEmbeddedDefault(st *state.State, d Default) error {
 		Requires:      d.Requires,
 	}
 	return nil
-}
-
-// hostBinaryName mirrors internal/builtins' canonical entrypoint naming
-// (<host binary name>-<plugin name>) so embedded defaults land under the
-// same convention as plugins installed via `dongle install`.
-func hostBinaryName() string {
-	name := filepath.Base(os.Args[0])
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		return "dongle"
-	}
-	return name
 }

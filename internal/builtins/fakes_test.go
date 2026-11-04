@@ -16,13 +16,6 @@ import (
 	"github.com/andreimladin/dongle/internal/testutil"
 )
 
-func TestMain(m *testing.M) {
-	// Entrypoints are named after the running host binary; pin it so
-	// expectations don't depend on the test binary's name.
-	os.Args[0] = "/usr/local/bin/dongle"
-	os.Exit(m.Run())
-}
-
 // fakeAz stands in for `az artifacts universal download`: it drops a
 // plugin binary (named unpredictably, as real packages may be) into --path.
 type fakeAz struct {

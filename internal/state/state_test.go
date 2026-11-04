@@ -35,6 +35,12 @@ func TestDataDirIsUnderHome(t *testing.T) {
 	}
 }
 
+func TestEntrypointName(t *testing.T) {
+	if got := EntrypointName("deploy"); got != "dongle-deploy" {
+		t.Fatalf("EntrypointName(deploy) = %q, want dongle-deploy", got)
+	}
+}
+
 func TestLoadMissingIsEmpty(t *testing.T) {
 	testutil.Isolate(t)
 	st, err := Load()

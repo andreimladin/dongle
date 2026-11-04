@@ -5,6 +5,7 @@ package bootstrap
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"testing/fstest"
 
@@ -60,45 +61,63 @@ func TestPendingDefaults(t *testing.T) {
 
 func TestInstallDefault(t *testing.T) {
 	testutil.Isolate(t)
-	orig := os.Args[0]
-	os.Args[0] = "/usr/bin/acme"
-	defer func() { os.Args[0] = orig }()
-	withPayload(t, fstest.MapFS{
-		"embedded/dongle-deploy": {Data: []byte("deploy-bin")},
-		"embedded/bin/lint":      {Data: []byte("lint-bin")},
-	})
 
-	// Default entrypoint follows the host binary's name.
-	if err := InstallDefault(Default{Name: "deploy", Version: "1.0.0", File: "dongle-deploy",
-		Requires: compat.Requires{Host: ">=0.1.0"}}); err != nil {
+	// Each default is declared once; the fake payload and the expected
+	// on-disk results are derived from it, so renaming a plugin here is
+	// a one-place change.
+	cases := []struct {
+		def       Default
+		payload   string // the staged file's contents
+		wantEntry string // the installed file's name
+	}{
+		{
+			def:       Default{Name: "deploy", Version: "1.0.0", File: "dongle-deploy", Requires: compat.Requires{Host: ">=0.1.0"}},
+			payload:   "deploy-bin",
+			wantEntry: "dongle-deploy", // no Entrypoint: the canonical dongle-<name>
+		},
+		{
+			def:       Default{Name: "lint", Version: "0.2.0", File: "bin/lint", Entrypoint: "custom-lint"},
+			payload:   "lint-bin",
+			wantEntry: "custom-lint", // an explicit Entrypoint wins
+		},
+	}
+	files := fstest.MapFS{}
+	for _, c := range cases {
+		files["embedded/"+c.def.File] = &fstest.MapFile{Data: []byte(c.payload)}
+	}
+	withPayload(t, files)
+
+	for _, c := range cases {
+		if err := InstallDefault(c.def); err != nil {
+			t.Fatalf("InstallDefault(%s): %v", c.def.Name, err)
+		}
+	}
+
+	st, err := state.Load()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallDefault(Default{Name: "lint", Version: "0.2.0", File: "bin/lint", Entrypoint: "custom-lint"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range []struct{ name, ver, entry, body string }{
-		{"deploy", "1.0.0", "acme-deploy", "deploy-bin"},
-		{"lint", "0.2.0", "custom-lint", "lint-bin"},
-	} {
-		p := filepath.Join(state.PluginVersionDir(c.name, c.ver), c.entry)
+	for _, c := range cases {
+		p := filepath.Join(state.PluginVersionDir(c.def.Name, c.def.Version), c.wantEntry)
 		b, err := os.ReadFile(p)
-		if err != nil || string(b) != c.body {
+		if err != nil || string(b) != c.payload {
 			t.Fatalf("%s: %q, %v", p, b, err)
 		}
-		if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o755 {
-			t.Fatalf("%s mode %v", p, fi.Mode())
+		if runtime.GOOS != "windows" { // Windows has no Unix permission bits
+			if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o755 {
+				t.Fatalf("%s mode %v, want 0755", p, fi.Mode())
+			}
 		}
-	}
-	st, _ := state.Load()
-	if st.Plugins["deploy"].Entrypoint != "acme-deploy" || st.Plugins["deploy"].Requires.Host != ">=0.1.0" ||
-		st.Plugins["lint"].ActiveVersion != "0.2.0" {
-		t.Fatalf("state = %+v", st.Plugins)
+		want := state.Installed{Name: c.def.Name, ActiveVersion: c.def.Version, Entrypoint: c.wantEntry, Requires: c.def.Requires}
+		if got := st.Plugins[c.def.Name]; got != want {
+			t.Fatalf("state for %s = %+v, want %+v", c.def.Name, got, want)
+		}
 	}
 
 	if err := InstallDefault(Default{Name: "ghost", Version: "1.0.0", File: "missing"}); err == nil {
 		t.Fatal("want error for a default whose file wasn't staged")
 	}
-	if st, _ := state.Load(); len(st.Plugins) != 2 {
+	if st, _ := state.Load(); len(st.Plugins) != len(cases) {
 		t.Fatal("a failed default was recorded in state")
 	}
 }
