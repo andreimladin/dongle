@@ -31,7 +31,9 @@ func TestInstall(t *testing.T) {
 		"--feed plugins", "--name "+pkgName("deploy"), "--version 1.2.0 ") // upack versions are bare semver
 	mustNotContain(t, "az args", args, "--project")
 
-	// The downloaded file is placed under the canonical entrypoint name, executable.
+	// The downloaded file is placed under the canonical entrypoint name,
+	// executable — dongle-<plugin>, not named after the running binary
+	// (here the test binary, builtins.test).
 	bin := filepath.Join(state.PluginVersionDir("deploy", "1.2.0"), "dongle-deploy")
 	fi, err := os.Stat(bin)
 	if err != nil {
@@ -217,24 +219,6 @@ func TestInstallFailures(t *testing.T) {
 				t.Errorf("staging left behind: %v", entries)
 			}
 		})
-	}
-}
-
-func TestHostBinaryName(t *testing.T) {
-	orig := os.Args[0]
-	defer func() { os.Args[0] = orig }()
-	cases := map[string]string{
-		"/opt/bin/acme":          "acme",
-		"dongle":                 "dongle",
-		"./tools/acme-cli":       "acme-cli",
-		"":                       "dongle",
-		string(os.PathSeparator): "dongle",
-	}
-	for arg0, want := range cases {
-		os.Args[0] = arg0
-		if got := hostBinaryName(); got != want {
-			t.Errorf("hostBinaryName() with argv[0] %q = %q, want %q", arg0, got, want)
-		}
 	}
 }
 
