@@ -199,7 +199,7 @@ fetch_embedded() {
 		fi
 
 		# Canonicalize to the same entrypoint naming `dongle install`
-		# uses: <host binary name>-<plugin name>.
+		# uses: dongle-<plugin name> (internal/state.EntrypointName).
 		local file="dongle-${name}"
 		[ "$goos" = "windows" ] && file="${file}.exe"
 		mv "$downloaded" "$EMBED_DIR/$file"
