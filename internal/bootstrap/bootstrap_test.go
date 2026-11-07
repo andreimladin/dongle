@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/andreimladin/dongle/internal/compat"
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
@@ -73,7 +74,7 @@ func TestInstallDefault(t *testing.T) {
 		{
 			def:       Default{Name: "deploy", Version: "1.0.0", File: "dongle-deploy", Requires: compat.Requires{Host: ">=0.1.0"}},
 			payload:   "deploy-bin",
-			wantEntry: "dongle-deploy", // no Entrypoint: the canonical dongle-<name>
+			wantEntry: host.Name + "-deploy", // no Entrypoint: the canonical <host.Name>-<name>
 		},
 		{
 			def:       Default{Name: "lint", Version: "0.2.0", File: "bin/lint", Entrypoint: "custom-lint"},

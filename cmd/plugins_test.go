@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
@@ -115,7 +116,7 @@ func TestUpgradeNameIsOptional(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("upgrade deploy: exit %d, want 1", code)
 	}
-	mustContain(t, "stderr", stderr, "deploy is not installed; use `dongle install deploy`")
+	mustContain(t, "stderr", stderr, "deploy is not installed; use `"+host.Name+" install deploy`")
 }
 
 func TestInstallAndRemove(t *testing.T) {

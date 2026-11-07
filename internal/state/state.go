@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/andreimladin/dongle/internal/compat"
+	"github.com/andreimladin/dongle/internal/host"
 )
 
 type Installed struct {
@@ -39,7 +40,7 @@ type State struct {
 
 func dataDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dongle")
+	return filepath.Join(home, "."+host.Name)
 }
 
 func DataDir() string    { return dataDir() }
@@ -50,12 +51,12 @@ func PluginVersionDir(name, version string) string {
 }
 
 // EntrypointName is the file name a plugin's binary is installed under in
-// its version dir: "dongle-<plugin>", whatever the host binary itself is
+// its version dir: "<host.Name>-<plugin>", whatever the host binary itself is
 // called on disk (e.g. a release's dongle-linux-amd64). Both `dongle
 // install` and the embedded defaults use it; dispatch reads the name back
 // from state.json rather than recomputing it, so changing this never
 // strands plugins that are already installed.
-func EntrypointName(plugin string) string { return "dongle-" + plugin }
+func EntrypointName(plugin string) string { return host.Name + "-" + plugin }
 
 func statePath() string { return filepath.Join(dataDir(), "state.json") }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andreimladin/dongle/internal/compat"
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
@@ -17,7 +18,7 @@ func TestInstall(t *testing.T) {
 	cacheIndex(t, "2024.1", deploy)
 
 	var code int
-	stdout, stderr := testutil.Capture(t, func() { code = Install(host, proto, "deploy", index.SyncAsk) })
+	stdout, stderr := testutil.Capture(t, func() { code = Install(hostVer, proto, "deploy", index.SyncAsk) })
 	if code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
@@ -32,9 +33,9 @@ func TestInstall(t *testing.T) {
 	mustNotContain(t, "az args", args, "--project")
 
 	// The downloaded file is placed under the canonical entrypoint name,
-	// executable — dongle-<plugin>, not named after the running binary
+	// executable — <host.Name>-<plugin>, not named after the running binary
 	// (here the test binary, builtins.test).
-	bin := filepath.Join(state.PluginVersionDir("deploy", "1.2.0"), "dongle-deploy")
+	bin := filepath.Join(state.PluginVersionDir("deploy", "1.2.0"), host.Name+"-deploy")
 	fi, err := os.Stat(bin)
 	if err != nil {
 		t.Fatal(err)
@@ -48,13 +49,13 @@ func TestInstall(t *testing.T) {
 
 	// State records what dispatch needs.
 	got := loadState(t).Plugins["deploy"]
-	want := state.Installed{Name: "deploy", ActiveVersion: "1.2.0", Entrypoint: "dongle-deploy",
+	want := state.Installed{Name: "deploy", ActiveVersion: "1.2.0", Entrypoint: host.Name + "-deploy",
 		Requires: compat.Requires{Host: ">=0.1.0", Protocol: "v1"}}
 	if got != want {
 		t.Fatalf("state = %+v, want %+v", got, want)
 	}
 
-	mustContain(t, "stdout", stdout, "Installed deploy 1.2.0", "(run it with: dongle deploy)")
+	mustContain(t, "stdout", stdout, "Installed deploy 1.2.0", "(run it with: "+host.Name+" deploy)")
 	mustContain(t, "stderr", stderr, "Installing deploy 1.2.0...")
 	if entries, _ := os.ReadDir(filepath.Join(state.DataDir(), ".staging")); len(entries) != 0 {
 		t.Fatalf("staging left behind: %v", entries)
@@ -66,7 +67,7 @@ func TestInstallProjectScopedFeed(t *testing.T) {
 	p := deploy
 	p.project = "tools"
 	cacheIndex(t, "2024.1", p)
-	if code := quiet(t, func() int { return Install(host, proto, "deploy", index.SyncAsk) }); code != 0 {
+	if code := quiet(t, func() int { return Install(hostVer, proto, "deploy", index.SyncAsk) }); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	mustContain(t, "az args", strings.Join(f.calls[0], " "), "--project tools --scope project")
@@ -78,8 +79,8 @@ func TestInstallAlreadyInstalled(t *testing.T) {
 		index   bool // a cached index lists a newer version
 		wantMsg string
 	}{
-		{"no cached index", false, "deploy is already installed (version 1.0.0). To update it, run: dongle upgrade deploy"},
-		{"newer in cached index", true, "deploy is already installed (1.0.0). A newer version (1.2.0) is available — run: dongle upgrade deploy"},
+		{"no cached index", false, "deploy is already installed (version 1.0.0). To update it, run: " + host.Name + " upgrade deploy"},
+		{"newer in cached index", true, "deploy is already installed (1.0.0). A newer version (1.2.0) is available — run: " + host.Name + " upgrade deploy"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -92,7 +93,7 @@ func TestInstallAlreadyInstalled(t *testing.T) {
 			// No cached index and no az on PATH: if Install went on to
 			// prepare the index it would fail, so exit 0 also proves it
 			// stopped before touching the feed.
-			_, stderr := testutil.Capture(t, func() { code = Install(host, proto, "deploy", index.SyncAsk) })
+			_, stderr := testutil.Capture(t, func() { code = Install(hostVer, proto, "deploy", index.SyncAsk) })
 			if code != 0 {
 				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 			}
@@ -116,7 +117,7 @@ func TestInstallFailures(t *testing.T) {
 			name:       "not in the index",
 			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1", deploy) },
 			plugin:     "nope",
-			wantStderr: []string{"error: no plugin named nope in the index (see `dongle search`)"},
+			wantStderr: []string{"error: no plugin named nope in the index (see `" + host.Name + " search`)"},
 		},
 		{
 			name: "host too old",
@@ -196,7 +197,7 @@ func TestInstallFailures(t *testing.T) {
 				name = "deploy"
 			}
 			var code int
-			stdout, stderr := testutil.Capture(t, func() { code = Install(host, proto, name, index.SyncAsk) })
+			stdout, stderr := testutil.Capture(t, func() { code = Install(hostVer, proto, name, index.SyncAsk) })
 			if code != 1 {
 				t.Fatalf("exit %d, want 1", code)
 			}

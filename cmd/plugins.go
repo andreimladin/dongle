@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/andreimladin/dongle/internal/builtins"
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 )
 
@@ -16,8 +19,8 @@ var searchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "List plugins available in the index",
 	Long:  "List every plugin in the index with its latest version and description.",
-	Example: `  dongle search
-  dongle install deploy     # then install one`,
+	Example: fmt.Sprintf(`  %[1]s search
+  %[1]s install deploy     # then install one`, host.Name),
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Search(syncMode(cmd)))
@@ -27,9 +30,9 @@ var searchCmd = &cobra.Command{
 var installCmd = &cobra.Command{
 	Use:   "install <name>",
 	Short: "Install a plugin from the index",
-	Long:  "Install a plugin and make it available as a dongle command.",
-	Example: `  dongle install deploy
-  dongle deploy               # then run it`,
+	Long:  "Install a plugin and make it available as a " + host.Name + " command.",
+	Example: fmt.Sprintf(`  %[1]s install deploy
+  %[1]s deploy               # then run it`, host.Name),
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Install(hostVersion, protocol, args[0], syncMode(cmd)))
@@ -66,7 +69,7 @@ var removeCmd = &cobra.Command{
 	Short: "Remove an installed plugin",
 	Long: `Remove an installed plugin: deletes every installed version of it from
 disk and drops it from local state.`,
-	Example: `  dongle remove deploy`,
+	Example: "  " + host.Name + " remove deploy",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Remove(args[0]))
@@ -77,8 +80,8 @@ var upgradeCmd = &cobra.Command{
 	Use:   "upgrade [name]",
 	Short: "Upgrade installed plugins",
 	Long:  "Upgrade one plugin, or all installed plugins when no name is given.",
-	Example: `  dongle upgrade            # upgrade everything installed
-  dongle upgrade deploy     # upgrade just one plugin`,
+	Example: fmt.Sprintf(`  %[1]s upgrade            # upgrade everything installed
+  %[1]s upgrade deploy     # upgrade just one plugin`, host.Name),
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := ""

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/andreimladin/dongle/internal/compat"
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
@@ -25,7 +26,7 @@ func Upgrade(hostVersion, protocol, name string, mode index.SyncMode) int {
 	}
 	if name != "" {
 		if _, ok := st.Plugins[name]; !ok {
-			ui.Errorf("%s is not installed; use `dongle install %s`", name, name)
+			ui.Errorf("%s is not installed; use `%s install %s`", name, host.Name, name)
 			return 1
 		}
 	} else if len(st.Plugins) == 0 {

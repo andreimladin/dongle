@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andreimladin/dongle/internal/host"
 )
 
 func TestCaptureSeparatesStreams(t *testing.T) {
@@ -37,7 +39,7 @@ func TestIsolate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, ".dongle"); dir != want {
+	if want := filepath.Join(home, "."+host.Name); dir != want {
 		t.Fatalf("data dir = %q, want %q under the isolated home", dir, want)
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {

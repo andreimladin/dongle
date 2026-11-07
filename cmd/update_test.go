@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
 
@@ -24,5 +25,5 @@ func TestUpdateTakesNoArgs(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit %d, want 2", code)
 	}
-	mustContain(t, "stderr", stderr, `unknown command "deploy"`, "Run 'dongle update --help' for usage.")
+	mustContain(t, "stderr", stderr, `unknown command "deploy"`, "Run '"+host.Name+" update --help' for usage.")
 }

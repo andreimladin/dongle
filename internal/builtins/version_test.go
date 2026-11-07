@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
@@ -20,7 +21,7 @@ func TestVersion(t *testing.T) {
 			t.Fatalf("exit %d", code)
 		}
 		lines := fieldsByLine(stdout)
-		want := []string{"dongle 1.4.0", "index none (run `dongle update`)", "", "no plugins installed"}
+		want := []string{host.Name + " 1.4.0", "index none (run `" + host.Name + " update`)", "", "no plugins installed"}
 		if strings.Join(lines, "\n") != strings.Join(want, "\n") {
 			t.Fatalf("got:\n%s", stdout)
 		}
@@ -33,7 +34,7 @@ func TestVersion(t *testing.T) {
 			state.Installed{Name: "zeta", ActiveVersion: "0.1.0"},
 			state.Installed{Name: "alpha", ActiveVersion: "1.0.0"})
 		stdout, _ := testutil.Capture(t, func() { Version("dev") })
-		want := []string{"dongle dev", "index 2024.03.01 (embedded)", "", "installed plugins:", "alpha 1.0.0", "zeta 0.1.0"}
+		want := []string{host.Name + " dev", "index 2024.03.01 (embedded)", "", "installed plugins:", "alpha 1.0.0", "zeta 0.1.0"}
 		if got := fieldsByLine(stdout); strings.Join(got, "\n") != strings.Join(want, "\n") {
 			t.Fatalf("got:\n%s", stdout)
 		}

@@ -139,3 +139,7 @@ meant to be swapped wholesale:
   `log.Fatal`), since `main` propagates these ints via `os.Exit`.
 - The module path (`github.com/andreimladin/dongle`) is a placeholder per the
   README; don't assume it's the final published path.
+- The host's own name lives in one place, `internal/host.Name`: the command name in
+  help and hints, the plugin entrypoint prefix (`state.EntrypointName`) and the data
+  dir (`~/.<name>`) all derive from it — don't hardcode "dongle" in code or test
+  expectations. The `DONGLE_*` plugin env vars are protocol, not derived from it.
