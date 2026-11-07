@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	"github.com/andreimladin/dongle/internal/host"
 )
 
 // Capture runs fn with os.Stdout and os.Stderr redirected to pipes and
@@ -59,7 +57,7 @@ func Isolate(t *testing.T) (dataDir string) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // what os.UserHomeDir reads on Windows
 	t.Setenv("PATH", t.TempDir())
-	dataDir = filepath.Join(home, "."+host.Name)
+	dataDir = filepath.Join(home, ".dongle")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

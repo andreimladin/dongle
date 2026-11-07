@@ -10,7 +10,6 @@ import (
 
 	"github.com/andreimladin/dongle/internal/builtins"
 	"github.com/andreimladin/dongle/internal/dispatch"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/ui"
 )
@@ -53,21 +52,21 @@ func exitCode(code int) error {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   host.Name,
-	Short: host.Name + " — one CLI, plug in the rest",
-	Long: fmt.Sprintf(`%[1]s — one CLI, plug in the rest
+	Use:   "dongle",
+	Short: "dongle — one CLI, plug in the rest",
+	Long: `dongle — one CLI, plug in the rest
 
-%[1]s is a host CLI that other CLIs plug into. Besides the builtin
+dongle is a host CLI that other CLIs plug into. Besides the builtin
 commands below, any installed plugin runs as a top-level command:
 
-  %[1]s <plugin> [args...]
+  dongle <plugin> [args...]
 
-Everything after the plugin name is passed to it unchanged.`, host.Name),
-	Example: fmt.Sprintf(`  %[1]s search            # what can I install?
-  %[1]s install deploy    # install a plugin
-  %[1]s deploy --help     # run it
-  %[1]s upgrade           # upgrade everything installed
-  %[1]s --version         # host, index and plugin versions`, host.Name),
+Everything after the plugin name is passed to it unchanged.`,
+	Example: `  dongle search            # what can I install?
+  dongle install deploy    # install a plugin
+  dongle deploy --help     # run it
+  dongle upgrade           # upgrade everything installed
+  dongle --version         # host, index and plugin versions`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	// Anything not matched to a builtin subcommand by cobra's Find lands
@@ -159,7 +158,7 @@ func init() {
 	rootCmd.SetUsageTemplate(usageTemplate + def[strings.Index(def, "\nAliases:"):])
 	// --version is handled by hand in rootCmd.RunE (flag parsing is off on
 	// the root); it's declared here only so it's listed in --help.
-	rootCmd.Flags().Bool("version", false, "print "+host.Name+", index and installed plugin versions")
+	rootCmd.Flags().Bool("version", false, "print dongle, index and installed plugin versions")
 	rootCmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
 		ui.Errorf("%v", err)
 		fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", c.CommandPath())

@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andreimladin/dongle/internal/builtins"
-	"github.com/andreimladin/dongle/internal/host"
 )
 
 // supportCmd reads a plugin's support links straight from the index
@@ -15,7 +14,7 @@ var supportCmd = &cobra.Command{
 	Short: "Show where to get help with a plugin",
 	Long: `Show a plugin's documentation, support channel and contact, as declared
 in its index manifest. Works for any plugin in the index, installed or not.`,
-	Example: "  " + host.Name + " support deploy",
+	Example: `  dongle support deploy`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return exitCode(builtins.Support(args[0]))

@@ -11,7 +11,6 @@ import (
 
 	"github.com/andreimladin/dongle/internal/azcli"
 	"github.com/andreimladin/dongle/internal/compat"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
@@ -43,7 +42,7 @@ func Install(hostVersion, protocol, name string, mode index.SyncMode) int {
 
 	m, err := index.Load(name)
 	if errors.Is(err, index.ErrNotFound) {
-		ui.Errorf("no plugin named %s in the index (see `%s search`)", name, host.Name)
+		ui.Errorf("no plugin named %s in the index (see `dongle search`)", name)
 		return 1
 	}
 	if err != nil {
@@ -59,7 +58,7 @@ func Install(hostVersion, protocol, name string, mode index.SyncMode) int {
 // from disk, never fetched — and it falls back to the plain message when
 // that isn't available or isn't newer.
 func reportAlreadyInstalled(inst state.Installed) {
-	upgrade := host.Name + " upgrade " + inst.Name
+	upgrade := "dongle upgrade " + inst.Name
 	if m, err := index.Load(inst.Name); err == nil {
 		if cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion); err == nil && cmp > 0 {
 			ui.Infof("%s is already installed (%s). A newer version (%s) is available — run: %s",
@@ -112,7 +111,7 @@ func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersio
 		ui.Resultf("Upgraded %s %s %s %s", ui.Out.Bold(m.Name), fromVersion, ui.Out.Arrow(), version)
 	} else {
 		ui.Resultf("Installed %s %s %s", ui.Out.Bold(m.Name), version,
-			ui.Out.Dim("(run it with: "+host.Name+" "+m.Name+")"))
+			ui.Out.Dim("(run it with: dongle "+m.Name+")"))
 	}
 	return 0
 }

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
@@ -19,7 +18,7 @@ func TestHelp(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%v: exit %d", args, code)
 		}
-		mustContain(t, "help", stdout, host.Name+" <command> [flags]", host.Name+" <plugin> [args...]", "search", "install")
+		mustContain(t, "help", stdout, "dongle <command> [flags]", "dongle <plugin> [args...]", "search", "install")
 		if strings.Contains(stdout, "completion") {
 			t.Errorf("%v: completion command should be disabled", args)
 		}
@@ -32,7 +31,7 @@ func TestVersionFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	mustContain(t, "stdout", stdout, host.Name, hostVersion, "no plugins installed")
+	mustContain(t, "stdout", stdout, "dongle", hostVersion, "no plugins installed")
 }
 
 func TestUnknownCommands(t *testing.T) {
@@ -70,9 +69,9 @@ func TestCobraUsageErrorsExitTwo(t *testing.T) {
 		args   []string
 		stderr []string
 	}{
-		{[]string{"install"}, []string{"error: accepts 1 arg(s), received 0", "Run '" + host.Name + " install --help' for usage."}},
-		{[]string{"search", "extra"}, []string{"error: unknown command \"extra\"", "Run '" + host.Name + " search --help' for usage."}},
-		{[]string{"search", "--bogus"}, []string{"error: unknown flag: --bogus", "Run '" + host.Name + " search --help' for usage."}},
+		{[]string{"install"}, []string{"error: accepts 1 arg(s), received 0", "Run 'dongle install --help' for usage."}},
+		{[]string{"search", "extra"}, []string{"error: unknown command \"extra\"", "Run 'dongle search --help' for usage."}},
+		{[]string{"search", "--bogus"}, []string{"error: unknown flag: --bogus", "Run 'dongle search --help' for usage."}},
 		{[]string{"search", "--sync", "--no-sync"}, []string{"error:", "sync", "no-sync"}},
 	}
 	for _, c := range cases {

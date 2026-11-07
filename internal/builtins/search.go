@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/ui"
 )
@@ -52,7 +51,7 @@ func Support(name string) int {
 	}
 	m, err := index.Load(name)
 	if errors.Is(err, index.ErrNotFound) {
-		ui.Errorf("no plugin named %s in the index (see `%s search`)", name, host.Name)
+		ui.Errorf("no plugin named %s in the index (see `dongle search`)", name)
 		return 1
 	}
 	if err != nil {

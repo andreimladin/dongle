@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/andreimladin/dongle/internal/compat"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
@@ -112,7 +111,7 @@ func TestRunRefusesBeforeExec(t *testing.T) {
 		{"unreadable state", corruptState, "deploy", 1, "error: reading state:"},
 		{"host too old", func(t *testing.T) {
 			install(t, state.Installed{Name: "deploy", ActiveVersion: "1.0.0", Requires: compat.Requires{Host: ">=2.0.0"}})
-		}, "deploy", 1, "deploy requires host >=2.0.0 but this host is 1.5.0 — upgrade " + host.Name},
+		}, "deploy", 1, "deploy requires host >=2.0.0 but this host is 1.5.0 — upgrade dongle"},
 		{"protocol mismatch", func(t *testing.T) {
 			install(t, state.Installed{Name: "deploy", ActiveVersion: "1.0.0", Requires: compat.Requires{Protocol: "v2"}})
 		}, "deploy", 1, `speaks protocol "v2"`},

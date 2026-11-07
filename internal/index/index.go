@@ -48,7 +48,6 @@ import (
 	"github.com/andreimladin/dongle/internal/azcli"
 	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/compat"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
 )
@@ -713,7 +712,7 @@ func Prepare(mode SyncMode, mutating bool) error {
 			"A newer plugin index is available (%s %s %s). Update the index first?", cached, ui.Err.Arrow(), latest))
 	default: // search, or no terminal to prompt on
 		ui.Notef("a newer plugin index is available (%s -> %s); using the cached one.", cached, latest)
-		ui.Notef("run `%s update`, or pass --sync, to update it first.", host.Name)
+		ui.Notef("run `dongle update`, or pass --sync, to update it first.")
 		return nil
 	}
 	if !update {

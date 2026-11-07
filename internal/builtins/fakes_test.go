@@ -203,7 +203,7 @@ func (p *fakePayload) MarkDefaultsBootstrapped() error {
 	return p.markErr
 }
 
-const hostVer, proto = "1.0.0", "v1"
+const host, proto = "1.0.0", "v1"
 
 var deploy = plugin{name: "deploy", version: "v1.2.0", host: ">=0.1.0", protocol: "v1"}
 

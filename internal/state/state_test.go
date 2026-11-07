@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/andreimladin/dongle/internal/compat"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
 
@@ -17,7 +16,7 @@ func TestDataDirIsUnderHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(home, "."+host.Name)
+	dir := filepath.Join(home, ".dongle")
 	if got := DataDir(); got != dir {
 		t.Fatalf("DataDir() = %q, want %q", got, dir)
 	}
@@ -37,8 +36,8 @@ func TestDataDirIsUnderHome(t *testing.T) {
 }
 
 func TestEntrypointName(t *testing.T) {
-	if got, want := EntrypointName("deploy"), host.Name+"-deploy"; got != want {
-		t.Fatalf("EntrypointName(deploy) = %q, want %q", got, want)
+	if got := EntrypointName("deploy"); got != "dongle-deploy" {
+		t.Fatalf("EntrypointName(deploy) = %q, want dongle-deploy", got)
 	}
 }
 

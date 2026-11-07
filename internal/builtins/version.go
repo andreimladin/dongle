@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
@@ -21,7 +20,7 @@ func Version(hostVersion string) int {
 	}
 
 	var top ui.Table
-	top.Row(0, host.Name, hostVersion)
+	top.Row(0, "dongle", hostVersion)
 	iv, note := indexVersionLabel()
 	top.Row(0, "index", iv+suffix(note))
 	top.Write(os.Stdout)
@@ -54,7 +53,7 @@ func suffix(note string) string {
 func indexVersionLabel() (version, note string) {
 	v, ok := index.CachedVersion()
 	if !ok {
-		return "none", "(run `" + host.Name + " update`)"
+		return "none", "(run `dongle update`)"
 	}
 	if origin, _ := index.CachedOrigin(); origin == index.OriginEmbedded {
 		return v, "(embedded)"

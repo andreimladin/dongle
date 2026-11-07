@@ -2,7 +2,6 @@ package builtins
 
 import (
 	"github.com/andreimladin/dongle/internal/bootstrap"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/ui"
 )
@@ -19,7 +18,7 @@ import (
 // touching the command's stdout.
 func Initialize() {
 	seedIndex := !index.HasCache() && payload.HasIndex()
-	sp := ui.StartSpinner("Initializing " + host.Name + "...")
+	sp := ui.StartSpinner("Initializing dongle...")
 	defaults := payload.PendingDefaults()
 	sp.Stop()
 	if !seedIndex && len(defaults) == 0 {

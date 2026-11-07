@@ -3,7 +3,6 @@ package builtins
 import (
 	"testing"
 
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
@@ -57,7 +56,7 @@ func TestUpgradeOne(t *testing.T) {
 			}
 			installed(t, state.Installed{Name: "deploy", ActiveVersion: c.installed})
 			var code int
-			stdout, stderr := testutil.Capture(t, func() { code = Upgrade(hostVer, proto, "deploy", index.SyncAsk) })
+			stdout, stderr := testutil.Capture(t, func() { code = Upgrade(host, proto, "deploy", index.SyncAsk) })
 			if code != c.wantCode {
 				t.Fatalf("exit %d, want %d; stderr:\n%s", code, c.wantCode, stderr)
 			}
@@ -87,7 +86,7 @@ func TestUpgradeAll(t *testing.T) {
 		state.Installed{Name: "delta", ActiveVersion: "1.0.0"},   // not in index: skipped
 	)
 	var code int
-	stdout, stderr := testutil.Capture(t, func() { code = Upgrade(hostVer, proto, "", index.SyncAsk) })
+	stdout, stderr := testutil.Capture(t, func() { code = Upgrade(host, proto, "", index.SyncAsk) })
 	if code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
@@ -117,7 +116,7 @@ func TestUpgradeAllReportsFailures(t *testing.T) {
 	f.failFor[pkgName("alpha")] = true
 
 	var code int
-	_, stderr := testutil.Capture(t, func() { code = Upgrade(hostVer, proto, "", index.SyncAsk) })
+	_, stderr := testutil.Capture(t, func() { code = Upgrade(host, proto, "", index.SyncAsk) })
 	if code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
@@ -132,17 +131,17 @@ func TestUpgradePreconditions(t *testing.T) {
 	t.Run("named plugin not installed", func(t *testing.T) {
 		newEnv(t)
 		var code int
-		_, stderr := testutil.Capture(t, func() { code = Upgrade(hostVer, proto, "deploy", index.SyncAsk) })
+		_, stderr := testutil.Capture(t, func() { code = Upgrade(host, proto, "deploy", index.SyncAsk) })
 		if code != 1 {
 			t.Fatalf("exit %d", code)
 		}
-		mustContain(t, "stderr", stderr, "deploy is not installed; use `"+host.Name+" install deploy`")
+		mustContain(t, "stderr", stderr, "deploy is not installed; use `dongle install deploy`")
 	})
 	t.Run("nothing installed", func(t *testing.T) {
 		newEnv(t)
 		var code int
 		// No index cached and no az: exit 0 shows the feed was never consulted.
-		_, stderr := testutil.Capture(t, func() { code = Upgrade(hostVer, proto, "", index.SyncAsk) })
+		_, stderr := testutil.Capture(t, func() { code = Upgrade(host, proto, "", index.SyncAsk) })
 		if code != 0 {
 			t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 		}
@@ -151,14 +150,14 @@ func TestUpgradePreconditions(t *testing.T) {
 	t.Run("index unavailable", func(t *testing.T) {
 		newEnv(t)
 		installed(t, state.Installed{Name: "deploy", ActiveVersion: "1.0.0"})
-		if code := quiet(t, func() int { return Upgrade(hostVer, proto, "", index.SyncAsk) }); code != 1 {
+		if code := quiet(t, func() int { return Upgrade(host, proto, "", index.SyncAsk) }); code != 1 {
 			t.Fatalf("exit %d", code)
 		}
 	})
 	t.Run("unreadable state", func(t *testing.T) {
 		newEnv(t)
 		corruptState(t)
-		if code := quiet(t, func() int { return Upgrade(hostVer, proto, "", index.SyncAsk) }); code != 1 {
+		if code := quiet(t, func() int { return Upgrade(host, proto, "", index.SyncAsk) }); code != 1 {
 			t.Fatalf("exit %d", code)
 		}
 	})

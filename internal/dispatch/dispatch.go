@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/andreimladin/dongle/internal/compat"
-	"github.com/andreimladin/dongle/internal/host"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
 )
@@ -46,7 +45,7 @@ func Run(hostVersion, protocol, name string, args []string) int {
 	}
 	inst, ok := st.Plugins[name]
 	if !ok {
-		ui.Errorf("plugin %q is not installed (see `%s --version`)", name, host.Name)
+		ui.Errorf("plugin %q is not installed (see `dongle --version`)", name)
 		return 127
 	}
 
@@ -58,7 +57,7 @@ func Run(hostVersion, protocol, name string, args []string) int {
 		ui.Errorf("bad constraint in state: %v", err)
 		return 1
 	} else if !ok {
-		ui.Errorf("%s %s — upgrade %s", name, reason, host.Name)
+		ui.Errorf("%s %s — upgrade dongle", name, reason)
 		return 1
 	}
 
