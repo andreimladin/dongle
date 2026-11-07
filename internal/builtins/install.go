@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/andreimladin/dongle/internal/azcli"
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
 )
+
+// az runs the Azure CLI for plugin artifact downloads; tests swap in a
+// fake.
+var az azcli.Runner = azcli.System{}
 
 // Install resolves name from the index and installs it. mode decides what
 // happens when the feed has a newer index than the cache (see
@@ -54,7 +58,7 @@ func Install(hostVersion, protocol, name string, mode index.SyncMode) int {
 // from disk, never fetched — and it falls back to the plain message when
 // that isn't available or isn't newer.
 func reportAlreadyInstalled(inst state.Installed) {
-	upgrade := fmt.Sprintf("%s upgrade %s", hostBinaryName(), inst.Name)
+	upgrade := "dongle upgrade " + inst.Name
 	if m, err := index.Load(inst.Name); err == nil {
 		if cmp, err := compat.CompareVersions(m.Version, inst.ActiveVersion); err == nil && cmp > 0 {
 			ui.Infof("%s is already installed (%s). A newer version (%s) is available — run: %s",
@@ -107,7 +111,7 @@ func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersio
 		ui.Resultf("Upgraded %s %s %s %s", ui.Out.Bold(m.Name), fromVersion, ui.Out.Arrow(), version)
 	} else {
 		ui.Resultf("Installed %s %s %s", ui.Out.Bold(m.Name), version,
-			ui.Out.Dim(fmt.Sprintf("(run it with: %s %s)", hostBinaryName(), m.Name)))
+			ui.Out.Dim("(run it with: dongle "+m.Name+")"))
 	}
 	return 0
 }
@@ -148,7 +152,7 @@ func fetchArtifact(m *index.Manifest, plat *index.Platform) (staging, downloaded
 // destDir afterward and returns the path to whichever single regular file
 // landed there.
 func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (string, error) {
-	if _, err := exec.LookPath("az"); err != nil {
+	if err := az.LookPath(); err != nil {
 		return "", fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
@@ -169,9 +173,7 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (
 	// az's stderr is captured (not inherited) so it can't garble the
 	// spinner; index.AzError surfaces it if the download fails.
 	var stderr bytes.Buffer
-	cmd := exec.Command("az", args...)
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := az.Run(args, nil, &stderr); err != nil {
 		return "", index.AzError(fmt.Sprintf("az download %s@%s", plat.Package, ver), err, stderr.Bytes())
 	}
 
@@ -197,7 +199,7 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (
 // read — name, version, and requires all come from the manifest. The
 // downloaded file's own name is not predictable (it need not match anything
 // in the manifest), so placePlugin canonicalizes it to a stable entrypoint
-// name — <host binary name>-<plugin name> — before placing it, so dispatch
+// name — state.EntrypointName, dongle-<plugin name> — before placing it, so dispatch
 // always knows what to exec regardless of how the package itself named the
 // file. downloaded already lives under <dataDir>/.staging (from
 // fetchArtifact), so the final move into the plugins dir is a same-filesystem
@@ -209,7 +211,7 @@ func placePlugin(m *index.Manifest, downloaded string) error {
 	}
 
 	version := strings.TrimPrefix(m.Version, "v")
-	entrypoint := hostBinaryName() + "-" + m.Name
+	entrypoint := state.EntrypointName(m.Name)
 	verDir := state.PluginVersionDir(m.Name, version)
 	dst := filepath.Join(verDir, entrypoint)
 
@@ -238,18 +240,6 @@ func placePlugin(m *index.Manifest, downloaded string) error {
 		Requires:      m.Requires,
 	}
 	return st.Save()
-}
-
-// hostBinaryName returns the currently running host binary's own basename,
-// so a renamed host binary (built as something other than "dongle") gets
-// plugin entrypoints named to match: <hostBinaryName>-<plugin>. Falls back
-// to "dongle" if the binary name can't be determined.
-func hostBinaryName() string {
-	name := filepath.Base(os.Args[0])
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		return "dongle"
-	}
-	return name
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {

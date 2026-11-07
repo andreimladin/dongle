@@ -125,8 +125,8 @@ use instead.
 
 ## Local data
 
-Everything lives under one data folder, `~/.dongle` (or `DONGLE_DATA_DIR` if
-set):
+Everything lives under one data folder, `~/.dongle` (it can't be
+relocated):
 
 ```
 ~/.dongle/
