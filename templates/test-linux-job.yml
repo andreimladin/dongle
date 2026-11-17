@@ -118,16 +118,19 @@ jobs:
           expect() { grep -Eq -e "$2" "$1" || fail "$([ "$1" = "$out" ] && echo stdout || echo stderr) does not match /$2/"; }
 
           # Step 3's expected output (without a terminal, progress lines
-          # lose their ✓ mark).
+          # lose their ✓ mark). First run downloads the index and installs
+          # its default plugins from the feed, so the service connection
+          # also needs read access to the index and plugin feeds.
           run --version
-          expect "$err" '^Initialized plugin index '
+          expect "$err" '^Downloading plugin index\.\.\.'
+          expect "$err" '^Downloaded plugin index '
           expect "$err" '^Initialization complete\.'
           if [ "$(DONGLE_VERSION)" = "*" ]; then
             expect "$out" '^dongle[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+'
           else
             expect "$out" "^dongle[[:space:]]+$(DONGLE_VERSION)\$"
           fi
-          expect "$out" '^index[[:space:]]+.+\(embedded\)'
+          expect "$out" '^index[[:space:]]+[^[:space:]]+$'
           expect "$out" '^installed plugins:'
 
           run --help
