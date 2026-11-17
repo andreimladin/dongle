@@ -167,16 +167,27 @@ func init() {
 	rootCmd.AddCommand(searchCmd, installCmd, removeCmd, upgradeCmd, updateCmd, supportCmd)
 }
 
+// isHelpInvocation reports whether args just ask for the root help (no
+// args, -h or --help), which first-run initialization never blocks.
+func isHelpInvocation(args []string) bool {
+	return len(args) == 0 || args[0] == "-h" || args[0] == "--help"
+}
+
 // Execute runs the root command and returns the process exit code.
 func Execute() int {
 	// Wire the build-time-injected index feed identity (above) into
 	// internal/index before any refresh/plugin command runs.
 	index.SetDefaults(indexOrg, indexProject, indexFeed, indexPackage)
 
-	// Batteries-included binaries (built with -tags embed) unpack their
-	// embedded index and default plugins here on first run, before any
-	// dispatch happens. Plain builds embed nothing, so it's a no-op.
-	builtins.Initialize()
+	// First run downloads the plugin index and installs its default
+	// plugins before any command runs (help excepted, so it always works,
+	// even offline). Nothing is embedded in the binary, so this needs the
+	// feed; on failure nothing is changed and the next run retries.
+	if !isHelpInvocation(os.Args[1:]) {
+		if code := builtins.Initialize(hostVersion, protocol); code != 0 {
+			return code
+		}
+	}
 
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {

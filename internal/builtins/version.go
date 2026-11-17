@@ -21,8 +21,11 @@ func Version(hostVersion string) int {
 
 	var top ui.Table
 	top.Row(0, "dongle", hostVersion)
-	iv, note := indexVersionLabel()
-	top.Row(0, "index", iv+suffix(note))
+	iv := "none"
+	if v, ok := index.CachedVersion(); ok {
+		iv = v
+	}
+	top.Row(0, "index", iv)
 	top.Write(os.Stdout)
 
 	fmt.Println()
@@ -38,25 +41,4 @@ func Version(hostVersion string) int {
 	}
 	plugins.Write(os.Stdout)
 	return 0
-}
-
-// suffix returns note preceded by a space, or "" when note is empty.
-func suffix(note string) string {
-	if note == "" {
-		return ""
-	}
-	return " " + note
-}
-
-// indexVersionLabel describes the cached index for --version: its
-// version, plus a note marking the embedded seed.
-func indexVersionLabel() (version, note string) {
-	v, ok := index.CachedVersion()
-	if !ok {
-		return "none", "(run `dongle update`)"
-	}
-	if origin, _ := index.CachedOrigin(); origin == index.OriginEmbedded {
-		return v, "(embedded)"
-	}
-	return v, ""
 }
