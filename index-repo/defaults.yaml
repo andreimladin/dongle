@@ -1,0 +1,13 @@
+# defaults.yaml — the plugins dongle installs by default on a user's first
+# run. This file is the single source of truth for that list: the dongle
+# binary embeds nothing, and has no default list of its own.
+#
+# It ships at the root of the released index archive, next to VERSION and
+# plugins/ (see azure-pipelines-publish-index.yml). Each entry is a plugin
+# name with a manifest at plugins/<name>.yaml; its version comes from that
+# manifest. A name missing from plugins/ is skipped (with a warning) on
+# first run. Changes reach new users with the next index release; users
+# already initialized are not affected.
+defaults:
+  - tacho
+  - bell

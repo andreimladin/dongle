@@ -210,6 +210,14 @@ If CI fails, read the validation step's log:
 
 Fix and push again; CI re-runs automatically.
 
+## Making your plugin a default
+
+Plugins installed on every user's first run are listed in the top-level
+[`defaults.yaml`](README.md#default-plugins-defaultsyaml), not in your
+manifest. Being a default is a dongle-team decision: to propose it, open a
+separate PR adding your plugin's name to `defaults.yaml`. It reaches new
+users with the next index release; existing users aren't affected.
+
 ## 6. Ask for an index release
 
 Merging doesn't make your plugin available. **Ask the dongle team to release
