@@ -22,7 +22,7 @@ import (
 //  3. swaps the downloaded index in as the cache and sets
 //     DefaultsBootstrapped, so this happens exactly once.
 //
-// It runs before every command but does — and prints — nothing once
+// It runs before every command (help included) but does — and prints — nothing once
 // initialized. Progress goes to stderr (a spinner on a terminal, plain
 // lines otherwise), never stdout.
 //

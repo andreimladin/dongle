@@ -130,7 +130,7 @@ not a rewrite of the build itself.
 ### First run: download the index, install its defaults
 
 The binary ships with nothing, so the first time it runs (before any
-command except `--help`) `internal/builtins.Initialize` sets it up from the
+command, `--help` included) `internal/builtins.Initialize` sets it up from the
 feed:
 
 1. downloads the latest `dongle-index` package from the feed (the same
@@ -182,7 +182,8 @@ that run are removed again, the downloaded index is discarded, and the
 scratch. A default that can never be installed on this machine — not in the
 index, incompatible with this host's version/protocol, or no build for this
 os/arch — is skipped with a warning instead, since retrying wouldn't help.
-`dongle --help` never triggers initialization, so it always works.
+Every invocation triggers it on first run, `dongle --help` and a bare
+`dongle` included, so until it succeeds even help needs the feed.
 
 ### The index cache after first run
 

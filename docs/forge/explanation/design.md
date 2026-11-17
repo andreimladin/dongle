@@ -129,7 +129,7 @@ described above takes over.
 **The first run needs the feed**: network access and an `az login` that
 can read it. If the feed can't be reached, dongle stops with an error,
 changes nothing, and tries again from the start the next time you run it.
-`dongle --help` works without setting up.
+This happens on the first run of any command, `dongle --help` included.
 
 ## Local data
 

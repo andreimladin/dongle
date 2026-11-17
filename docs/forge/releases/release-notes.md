@@ -20,8 +20,8 @@
 
 - **The first run needs the feed**: network access and `az login`. If the
   feed can't be reached, dongle says so, changes nothing and exits with an
-  error; run it again once you're connected. `dongle --help` works without
-  it.
+  error; run it again once you're connected. This applies to every command
+  on the first run, `dongle --help` included.
 - **Already using dongle?** Nothing changes for you: your index and plugins
   stay as they are.
 
