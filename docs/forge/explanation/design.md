@@ -110,18 +110,26 @@ splits the work into a cheap step and an expensive one:
 The local index is therefore never replaced behind your back, and a merged
 manifest reaches users only through a deliberate index release.
 
-## Batteries included: the embedded index and default plugins
+## First run: downloading the index and default plugins
 
-Release builds of dongle **embed** two things at build time:
+The dongle executable contains **only dongle itself** — no plugins and no
+plugin index are built into it. On the
+[first run](../getting-started/index.md#step-3--first-run), dongle sets
+itself up from the feed:
 
-- a copy of the current `dongle-index` archive;
-- a set of **default plugins** chosen by the dongle team.
+1. it downloads the latest `dongle-index` archive;
+2. it reads the archive's **`defaults.yaml`**, the list of default plugins
+   the dongle team maintains in the index repo (it is the single source of
+   truth for which plugins every new user gets);
+3. it installs each of those plugins exactly as `dongle install` would.
 
-On the [first run](../getting-started/index.md#step-3--first-run), dongle unpacks both,
-so a new install works immediately and **offline**, and `--version` labels
-that index `(embedded)`. After that, the normal checking/downloading cycle
-takes over. Developer builds embed nothing and download the index on first
-use instead.
+It does this once. After that, the normal checking/downloading cycle
+described above takes over.
+
+**The first run needs the feed**: network access and an `az login` that
+can read it. If the feed can't be reached, dongle stops with an error,
+changes nothing, and tries again from the start the next time you run it.
+This happens on the first run of any command, `dongle --help` included.
 
 ## Local data
 
@@ -147,4 +155,4 @@ set):
 | `az` for all feed access | reuses existing sign-in and permissions; dongle stores no secrets |
 | index released as a versioned package | users get reviewed, deliberate catalog updates |
 | check the version first, download only on consent | fast commands, no surprise changes |
-| embedded index and defaults | a fresh install works offline from the first command |
+| nothing built into the executable; index and defaults downloaded on first run | small executable; the default plugins are decided by the index (`defaults.yaml`), not by a dongle release |

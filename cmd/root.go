@@ -173,10 +173,13 @@ func Execute() int {
 	// internal/index before any refresh/plugin command runs.
 	index.SetDefaults(indexOrg, indexProject, indexFeed, indexPackage)
 
-	// Batteries-included binaries (built with -tags embed) unpack their
-	// embedded index and default plugins here on first run, before any
-	// dispatch happens. Plain builds embed nothing, so it's a no-op.
-	builtins.Initialize()
+	// First run downloads the plugin index and installs its default
+	// plugins before any command runs — whatever the command, --help
+	// included. Nothing is embedded in the binary, so this needs the feed;
+	// on failure nothing is changed and the next run retries.
+	if code := builtins.Initialize(hostVersion, protocol); code != 0 {
+		return code
+	}
 
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {

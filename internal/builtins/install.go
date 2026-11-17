@@ -70,15 +70,7 @@ func reportAlreadyInstalled(inst state.Installed) {
 // describes. A non-empty fromVersion makes it an upgrade from that
 // version, which only changes the progress and success messages.
 func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersion string) int {
-	if ok, reason, err := compat.Check(hostVersion, protocol, m.Requires); err != nil {
-		ui.Errorf("bad constraint in manifest: %v", err)
-		return 1
-	} else if !ok {
-		ui.Errorf("%s %s — not installing", m.Name, reason)
-		return 1
-	}
-
-	plat, err := m.PlatformFor()
+	plat, err := checkInstallable(hostVersion, protocol, m)
 	if err != nil {
 		ui.Errorf("%v", err)
 		return 1
@@ -90,13 +82,7 @@ func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersio
 		action = fmt.Sprintf("Upgrading %s %s %s %s...", m.Name, fromVersion, ui.Err.Arrow(), version)
 	}
 	sp := ui.StartSpinner(action)
-	staging, downloaded, err := fetchArtifact(m, plat)
-	if staging != "" {
-		defer os.RemoveAll(staging)
-	}
-	if err == nil {
-		err = placePlugin(m, downloaded)
-	}
+	err = downloadAndPlace(m, plat)
 	sp.Stop()
 	if err != nil {
 		ui.Errorf("%v", err)
@@ -110,6 +96,32 @@ func installResolved(hostVersion, protocol string, m *index.Manifest, fromVersio
 			ui.Out.Dim(fmt.Sprintf("(run it with: %s %s)", hostBinaryName(), m.Name)))
 	}
 	return 0
+}
+
+// checkInstallable reports whether m can be installed on this host at all
+// — its requires constraints are satisfied and it has a build for this
+// os/arch — and returns that build. It touches neither the feed nor disk.
+func checkInstallable(hostVersion, protocol string, m *index.Manifest) (*index.Platform, error) {
+	if ok, reason, err := compat.Check(hostVersion, protocol, m.Requires); err != nil {
+		return nil, fmt.Errorf("bad constraint in manifest: %w", err)
+	} else if !ok {
+		return nil, fmt.Errorf("%s %s — not installing", m.Name, reason)
+	}
+	return m.PlatformFor()
+}
+
+// downloadAndPlace downloads plat's artifact from the feed and places it
+// as m's active version (see placePlugin). It prints nothing, so it can
+// run under a spinner.
+func downloadAndPlace(m *index.Manifest, plat *index.Platform) error {
+	staging, downloaded, err := fetchArtifact(m, plat)
+	if staging != "" {
+		defer os.RemoveAll(staging)
+	}
+	if err != nil {
+		return err
+	}
+	return placePlugin(m, downloaded)
 }
 
 // stagingRoot returns a fresh temp dir under <dataDir>/.staging so that the

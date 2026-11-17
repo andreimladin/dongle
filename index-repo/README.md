@@ -346,6 +346,33 @@ support:
   contact: deploy-team@acme.example.com
 ```
 
+## Default plugins (`defaults.yaml`)
+
+`defaults.yaml`, at the root of this repo (outside `plugins/`), lists the
+plugins dongle installs automatically on a user's **first run**. It is the
+**single source of truth** for that list — the dongle binary embeds no
+plugins and no default list of its own:
+
+```yaml
+defaults:
+  - tacho
+  - bell
+```
+
+- Each entry is a plugin name; it must have a manifest at
+  `plugins/<name>.yaml`, whose `version` is the version installed. The
+  publish pipeline refuses to release an index whose `defaults.yaml` names a
+  plugin with no manifest.
+- The file ships inside the released index archive, next to `VERSION` and
+  `plugins/`. On first run dongle downloads the index, reads this list and
+  installs each plugin from the feed (skipping, with a warning, one that is
+  incompatible with the user's host or has no build for their platform).
+- Changing it only affects **new** users, after the next index release:
+  first-run setup happens once per machine. Existing users are never
+  changed.
+- Adding or removing a default is a dongle-team decision: open a PR that
+  edits `defaults.yaml`, and it needs the same 2 approvals as a manifest.
+
 ### What CI checks
 
 CI validates every manifest your PR changes: strict parsing (no unknown
@@ -363,7 +390,8 @@ dongle never reads this repo directly. Manifests are merged into
 - a release is cut from a `release/X.Y.Z` branch, and `X.Y.Z` becomes the
   index version;
 - `azure-pipelines-publish-index.yml` packs the repo's `plugins/` folder,
-  plus a `VERSION` file, into `index.tar.gz`;
+  the top-level [`defaults.yaml`](#default-plugins-defaultsyaml) and a
+  `VERSION` file into `index.tar.gz`;
 - that archive is published to the feed as the **`dongle-index`** Universal
   Package, at version `X.Y.Z`.
 
@@ -376,6 +404,7 @@ release. How users' machines pick up a new index is described in
 | path | purpose |
 |---|---|
 | `plugins/<name>.yaml` | one manifest per plugin |
+| `defaults.yaml` | the plugins installed by default on a user's first run (see [Default plugins](#default-plugins-defaultsyaml)) |
 | `CONTRIBUTING.md` | how to add or update a plugin |
 | `PULL_REQUEST_TEMPLATE.md` | checklist for manifest PRs |
 | `CODEOWNERS` | who owns each plugin's manifest |
