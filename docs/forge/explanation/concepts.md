@@ -65,8 +65,8 @@ manifest, one file per plugin.
   index release.
 - It's **cached** on each user's machine. dongle checks for a newer index
   version and downloads it only when you agree, or when you run
-  `dongle update`. Release builds ship with a copy built in, so dongle works
-  from its first run.
+  `dongle update`. On its first run, dongle downloads the index and
+  installs the default plugins it lists (its `defaults.yaml`).
 
 `dongle search` shows what's in the index you have, and `dongle --version`
 shows its version.

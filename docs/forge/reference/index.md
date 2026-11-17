@@ -53,9 +53,8 @@ error (exit 2).
 
 If the feed can't be reached, or the download fails, a `warning:` is
 printed and the cached index is used. The command doesn't fail because of
-it. If nothing is cached and the binary has no embedded index, the index
-is downloaded first (`Downloading plugin index...`), and failing that **is**
-an error.
+it. If nothing is cached, the index is downloaded first (`Downloading
+plugin index...`), and failing that **is** an error.
 
 ## `dongle search`
 
@@ -140,8 +139,7 @@ Refreshes the cached index, ignoring how recently it was checked:
    `installed`, or `installed <v>, upgrade available`.
 
 If the feed can't be reached, or the download fails, it prints `could not
-update the plugin index: …` and **exits 1**. The existing cache stays in use
-(or, with nothing cached, the embedded index is unpacked).
+update the plugin index: …` and **exits 1**. The existing cache stays in use.
 
 ## `dongle support`
 
@@ -164,15 +162,13 @@ Prints, on stdout:
 
 ```
 dongle    <host version>
-index     <index version> [(embedded)]
+index     <index version>
 
 installed plugins:
   <name>  <version>
 ```
 
-- `index none (run dongle update)` when no index is cached.
-- `(embedded)` when the cached index is still the copy built into the
-  binary.
+- `index none` when no index is cached.
 - `no plugins installed` when there are none.
 
 This is also how you list installed plugins. Doesn't contact the feed.
@@ -239,7 +235,6 @@ Builtin names always take precedence over plugin names.
 <data dir>/
   index/plugins/<name>.yaml     # cached index manifests
   index.version                 # cached index version
-  index.origin                  # "embedded" or "fetched"
   index.meta                    # when the index was last confirmed current
   plugins/<name>/<version>/     # installed plugin executable
   state.json                    # installed plugins, active versions, requires
