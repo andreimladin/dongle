@@ -43,7 +43,7 @@ sh demo.sh          # local-dir install lifecycle, end to end
 | command | binary |
 |---|---|
 | `go build ./cmd` | dev binary, `hostVersion` defaults to `"dev"`, no index feed identity baked in |
-| `./scripts/build.sh build_binary <os> <arch>` | release binary `dist/dongle-<os>-<arch>` for that one platform |
+| `./scripts/build.sh <os> <arch>` | release binary `dist/dongle-<os>-<arch>` for that one platform |
 
 Both produce the same **thin, host-only** binary: nothing — no plugins, no
 plugin index — is embedded into it, and there is no build tag. The release
@@ -51,7 +51,7 @@ build differs only in the values it stamps in via `-ldflags` (see below).
 Plugins and the index arrive at runtime, from the feed, starting with
 [first run](#first-run-download-the-index-install-its-defaults).
 
-`scripts/build.sh build_binary <os> <arch>` is a release maintainer's step,
+`scripts/build.sh <os> <arch>` is a release maintainer's step,
 run locally one platform at a time or by `azure-pipelines-release.yml`'s
 job matrix (see "Pipelines" below) — **not** run in CI on every PR. It just
 cross-compiles: it needs Go and nothing else — no `az`, no feed access.
@@ -69,7 +69,7 @@ time via `-ldflags -X`:
   `DONGLE_INDEX_PROJECT`/`DONGLE_INDEX_PACKAGE`) at runtime to use first-run
   initialization, `dongle update` and the index-reading commands locally.
   Without them, first-run initialization is skipped.
-- `scripts/build.sh`'s `build_binary` stamps all five, with the index feed
+- `scripts/build.sh` stamps all five, with the index feed
   identity read from `configs/build.yaml` via `tools/readconfig` — a small
   build-time-only Go helper (reuses `gopkg.in/yaml.v3`, not a `dongle`
   subcommand) whose `--index` flag prints `INDEX_ORG`/`INDEX_PROJECT`/
@@ -106,9 +106,9 @@ you pass the script by hand).
   none`; queued by hand or the REST API). A `Guard` job fails fast unless
   run against a `release/X.Y.Z` branch, and derives `DONGLE_VERSION` from
   the branch name. A `BuildAndPublish` job then runs as a **matrix over all
-  six target platforms**; each leg runs `./scripts/build.sh build_binary
-  $(os) $(arch)` and publishes that one binary as its own Universal Package
-  to the host feed (the only step that needs the Azure service connection).
+  six target platforms**; each leg runs `./scripts/build.sh $(os) $(arch)`
+  and publishes that one binary as its own Universal Package to the host
+  feed (the only step that needs the Azure service connection).
   Feed name and service connection are parameterized at the top of the
   file with `TODO` placeholders — fill those in before running it.
 - **`azure-pipelines-tooling.yml`** — publishes `tools/validate-manifest`
@@ -264,7 +264,7 @@ configs/                build input consumed by scripts/build.sh
                         index's defaults.yaml, target platforms in the
                         release pipeline's matrix) — human-edited, not read
                         at runtime
-scripts/build.sh        the release build script: build_binary <os> <arch>
+scripts/build.sh        the release build script: build.sh <os> <arch>
                         cross-compiles one thin binary (no feed access)
 cmd/                    host entry (cobra): main.go, root.go (root command +
                         plugin dispatch fall-through, plus the

@@ -1,8 +1,8 @@
 # Manual-only release pipeline: builds all six thin (host-only) binaries —
-# one per job in a matrix, via scripts/build.sh's build_binary — and
-# publishes each as its own Universal Package to the host feed. Never triggered by a push or a PR — `trigger: none` / `pr:
-# none` below mean this only runs when queued by hand (or via the REST
-# API), and only makes sense run against a release/X.Y.Z branch (the Guard
+# one per job in a matrix, via scripts/build.sh — and publishes each as its
+# own Universal Package to the host feed. Never triggered by a push or a
+# PR — `trigger: none` / `pr: none` below mean this only runs when queued by
+# hand (or via the REST API), and only makes sense run against a release/X.Y.Z branch (the Guard
 # job below enforces that and derives DONGLE_VERSION from the branch name).
 #
 # All actual build logic lives in scripts/build.sh — this pipeline only
@@ -63,10 +63,10 @@ jobs:
           version: "1.21"
         displayName: "Install Go"
 
-      - script: ./scripts/build.sh build_binary $(os) $(arch)
+      - script: ./scripts/build.sh $(os) $(arch)
         env:
           DONGLE_VERSION: $(DONGLE_VERSION)
-        displayName: "build.sh build_binary $(os) $(arch)"
+        displayName: "build.sh $(os) $(arch)"
 
       - task: AzureCLI@2
         inputs:
