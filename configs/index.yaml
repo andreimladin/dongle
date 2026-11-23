@@ -1,4 +1,4 @@
-# build.yaml — the single source of truth for the index feed identity baked
+# index.yaml — the single source of truth for the index feed identity baked
 # into release binaries via -ldflags. Build input; read at build time by
 # tools/readconfig, not at runtime.
 #

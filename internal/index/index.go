@@ -18,7 +18,7 @@
 //
 // The feed package identity (org/project/feed/package name) is a
 // build-time build input — baked in via -ldflags at build time (see
-// cmd/root.go and configs/build.yaml) and wired into this package once at
+// cmd/root.go and configs/index.yaml) and wired into this package once at
 // startup via SetDefaults. DONGLE_INDEX_ORG / DONGLE_INDEX_PROJECT /
 // DONGLE_INDEX_FEED / DONGLE_INDEX_PACKAGE override them as dev escape
 // hatches; normal users never set them.

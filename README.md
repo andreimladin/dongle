@@ -56,7 +56,7 @@ run locally one platform at a time or by `azure-pipelines-release.yml`'s
 job matrix (see "Pipelines" below) — **not** run in CI on every PR. It just
 cross-compiles: it needs Go and nothing else — no `az`, no feed access.
 
-### Build inputs are injected at build time (`configs/build.yaml`)
+### Build inputs are injected at build time (`configs/index.yaml`)
 
 `hostVersion` and the index feed identity (org/project/feed/package name)
 are not hardcoded in Go — they're plain vars in `cmd/root.go` (`protocol`,
@@ -70,7 +70,7 @@ time via `-ldflags -X`:
   initialization, `dongle update` and the index-reading commands locally.
   Without them, first-run initialization is skipped.
 - `scripts/build.sh` stamps all five, with the index feed
-  identity read from `configs/build.yaml` via `tools/readconfig` — a small
+  identity read from `configs/index.yaml` via `tools/readconfig` — a small
   build-time-only Go helper (reuses `gopkg.in/yaml.v3`, not a `dongle`
   subcommand) whose `--index` flag prints `INDEX_ORG`/`INDEX_PROJECT`/
   `INDEX_FEED`/`INDEX_PACKAGE` as `eval`-able shell assignments — so the
@@ -80,7 +80,7 @@ time via `-ldflags -X`:
   `git describe`, then `"dev"`.
 
 ```yaml
-# configs/build.yaml
+# configs/index.yaml
 index:
   organization: "[ORG]" # TODO: set the real Azure DevOps organization
   project: "" # TODO: set for a project-scoped feed; leave empty for org-scoped
@@ -88,7 +88,7 @@ index:
   package: dongle-index
 ```
 
-`configs/build.yaml` (see `configs/README.md`) is human-edited and consumed
+`configs/index.yaml` (see `configs/README.md`) is human-edited and consumed
 only by `scripts/build.sh` — nothing in `configs/` is read at runtime.
 It holds **no plugin list**: which plugins are installed by default is
 declared by the index itself (its top-level `defaults.yaml`, see below).
@@ -259,7 +259,7 @@ azure-pipelines-tooling.yml  publishes tools/validate-manifest to the feed;
                         tooling/X.Y.Z, matrixed only over the validator's
                         own runner platforms (not all six host targets)
 configs/                build input consumed by scripts/build.sh
-                        (build.yaml: index feed identity only — no plugin
+                        (index.yaml: index feed identity only — no plugin
                         list, no target platforms; defaults live in the
                         index's defaults.yaml, target platforms in the
                         release pipeline's matrix) — human-edited, not read
@@ -289,7 +289,7 @@ internal/index/        feed-archive catalog: downloads + extracts the
                         (ensure cache, 1h TTL, version check, update
                         prompt, index summary), lookups, the index's
                         defaults.yaml list
-tools/readconfig/       build-time-only helper: reads configs/build.yaml,
+tools/readconfig/       build-time-only helper: reads configs/index.yaml,
                         prints the index feed identity for scripts/build.sh
                         (not a dongle subcommand)
 tools/validate-manifest/  standalone tool (not a dongle subcommand): validates
@@ -337,7 +337,7 @@ How the index is released, cached and refreshed is described in
 
 Dev overrides: `DONGLE_INDEX_ORG`, `DONGLE_INDEX_PROJECT`, `DONGLE_INDEX_FEED`,
 and `DONGLE_INDEX_PACKAGE` each override the corresponding value injected at
-build time from `configs/build.yaml`'s `index:` section; a plain `go build
+build time from `configs/index.yaml`'s `index:` section; a plain `go build
 ./cmd` has no index org/feed baked in at all, so at least `DONGLE_INDEX_ORG`
 and `DONGLE_INDEX_FEED` are required to use `dongle update` and the index-reading
 commands.
@@ -347,7 +347,7 @@ commands.
 - Replace `andreimladin` with your GitHub/module path everywhere:
   `grep -rl andreimladin . | xargs sed -i 's/andreimladin/<you>/g'`
 - Set `organization`, `project`, and `feed` under `index:` in
-  `configs/build.yaml`.
+  `configs/index.yaml`.
 - Fill in the `LICENSE` year/name.
 
 ## License

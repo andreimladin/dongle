@@ -15,7 +15,7 @@ import (
 )
 
 // Build-time build inputs, injected via -ldflags at build time (see
-// scripts/build.sh and configs/build.yaml — the human-edited source of
+// scripts/build.sh and configs/index.yaml — the human-edited source of
 // truth that script bakes these values from). A plain `go build ./cmd`
 // leaves them at these defaults: hostVersion "dev", no index feed identity
 // (DONGLE_INDEX_ORG/DONGLE_INDEX_FEED/DONGLE_INDEX_PACKAGE are then

@@ -13,7 +13,7 @@
 # hostVersion comes from outside this script: the pipeline sets
 # DONGLE_VERSION (required in CI); locally it falls back to `git describe`,
 # then "dev". The index feed identity (org/project/feed/package) comes from
-# configs/build.yaml — read through tools/readconfig, so this script
+# configs/index.yaml — read through tools/readconfig, so this script
 # hardcodes none of it — and is baked in via -ldflags alongside
 # hostVersion, so the binary knows where to download its index from.
 set -euo pipefail

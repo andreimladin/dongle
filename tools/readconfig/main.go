@@ -1,6 +1,6 @@
 // Command readconfig is a build-time-only helper — NOT a dongle subcommand
 // and not part of the host↔plugin contract. scripts/build.sh shells out to
-// it to read configs/build.yaml (the single source of truth for the index
+// it to read configs/index.yaml (the single source of truth for the index
 // feed identity) and print it back out as eval-able shell assignments — so
 // the script itself hardcodes none of it. It reuses gopkg.in/yaml.v3 (already a
 // dependency, via internal/index) rather than pulling in a YAML CLI tool.
@@ -23,7 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// buildConfig mirrors configs/build.yaml's shape.
+// buildConfig mirrors configs/index.yaml's shape.
 type buildConfig struct {
 	Index struct {
 		Organization string `yaml:"organization"`
@@ -40,7 +40,7 @@ func main() {
 func run(args []string) int {
 	fs := flag.NewFlagSet("readconfig", flag.ContinueOnError)
 	index := fs.Bool("index", false, "print INDEX_ORG/INDEX_PROJECT/INDEX_FEED/INDEX_PACKAGE as shell assignments")
-	configPath := fs.String("file", "configs/build.yaml", "path to build.yaml")
+	configPath := fs.String("file", "configs/index.yaml", "path to index.yaml")
 	fs.Usage = printUsage
 	if err := fs.Parse(args); err != nil {
 		return 2
