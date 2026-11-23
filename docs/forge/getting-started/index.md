@@ -8,7 +8,11 @@ dongle uses the Azure CLI to download plugins, so you need it installed and
 signed in.
 
 1. Install the Azure CLI:
-   - **Windows:** see [Windows](#windows) below.
+   - **Windows:** Company Portal → **Azure CLI** → **Install**.
+     <!-- TODO: confirm exact portal listing name. -->
+     - *Optional:* Company Portal → **WSL** → install Ubuntu with WSL
+       (`wsl --install -d Ubuntu`), then follow the [Linux](#linux) steps
+       inside Ubuntu.
    - **macOS:** `brew install azure-cli`
    - **Linux:** follow Microsoft's
      [install guide for your distribution](https://learn.microsoft.com/cli/azure/install-azure-cli-linux).
@@ -39,28 +43,14 @@ for all six of these combinations, and dongle picks the right plugin build
 for you automatically when you install it: you never choose an
 architecture for a plugin.
 
-### macOS
+### macOS and Windows
 
-Open **Self Service**, search for **dongle**, and click **Install**. To
-update later, click **Update**. The portal adds `dongle` to your `PATH`.
+- **macOS:** Self Service → **dongle** → **Install**.
+- **Windows:** Company Portal → **1ES CLI** → **Install**.
+  <!-- TODO: confirm exact portal listing name. -->
 
-### Windows
-
-**Option 1 — Company Portal (recommended)**
-
-1. Company Portal → search **Azure CLI** → **Install**.
-   <!-- TODO: confirm exact portal listing name. -->
-2. In PowerShell: `az login`
-3. Company Portal → search **1ES CLI** → **Install**.
-   <!-- TODO: confirm exact portal listing name. -->
-4. In a new PowerShell: `dongle --version`
-
-**Option 2 — WSL (optional)**
-
-1. Company Portal → install **WSL** and **Ubuntu**.
-   <!-- TODO: confirm exact portal listing names. -->
-2. Open Ubuntu and follow [Linux](#linux) (Azure CLI and dongle are
-   installed inside Ubuntu).
+To update later, click **Update** in the same app. The portal adds `dongle`
+to your `PATH`.
 
 ### Linux
 
