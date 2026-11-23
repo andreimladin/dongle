@@ -16,10 +16,6 @@ import (
 	"github.com/andreimladin/dongle/internal/ui"
 )
 
-// az runs the Azure CLI for plugin artifact downloads; tests swap in a
-// fake.
-var az azcli.Runner = azcli.System{}
-
 // Install resolves name from the index and installs it. mode decides what
 // happens when the feed has a newer index than the cache (see
 // index.Prepare). An already-installed plugin is left alone: Install
@@ -164,7 +160,7 @@ func fetchArtifact(m *index.Manifest, plat *index.Platform) (staging, downloaded
 // destDir afterward and returns the path to whichever single regular file
 // landed there.
 func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (string, error) {
-	if err := az.LookPath(); err != nil {
+	if err := azcli.Default.LookPath(); err != nil {
 		return "", fmt.Errorf("the Azure CLI is required: install it and run `az extension add --name azure-devops`")
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
@@ -185,7 +181,7 @@ func downloadArtifact(m *index.Manifest, plat *index.Platform, destDir string) (
 	// az's stderr is captured (not inherited) so it can't garble the
 	// spinner; index.AzError surfaces it if the download fails.
 	var stderr bytes.Buffer
-	if err := az.Run(args, nil, &stderr); err != nil {
+	if err := azcli.Default.Run(args, nil, &stderr); err != nil {
 		return "", index.AzError(fmt.Sprintf("az download %s@%s", plat.Package, ver), err, stderr.Bytes())
 	}
 

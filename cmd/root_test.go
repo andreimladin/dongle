@@ -147,3 +147,22 @@ func TestUnreadableStateWhenResolvingPlugin(t *testing.T) {
 	}
 	mustContain(t, "stderr", stderr, "error: reading state:")
 }
+
+// First-run initialization runs before every command; when it fails (here:
+// a feed is baked in, but there's no az to reach it) the command must not
+// run and its exit code is Initialize's.
+func TestFirstRunFailureStopsTheCommand(t *testing.T) {
+	testutil.Isolate(t) // empty PATH: no az
+	origOrg, origFeed := indexOrg, indexFeed
+	indexOrg, indexFeed = "acme", "plugins"
+	defer func() { indexOrg, indexFeed = origOrg, origFeed }()
+
+	code, stdout, stderr := run(t, "--version")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if stdout != "" {
+		t.Errorf("the command ran despite the failed first run: stdout %q", stdout)
+	}
+	mustContain(t, "stderr", stderr, "couldn't reach the feed to initialize dongle", "run dongle again to retry")
+}

@@ -23,9 +23,11 @@ sh demo.sh                                        # full end-to-end walkthrough
 ```
 
 `go test ./...` runs unit and orchestration tests. External dependencies sit
-behind small seams swapped for fakes in tests: `internal/azcli.Runner` (the `az`
-CLI, used by `internal/index` and `internal/builtins`), `index.prompt` (the
-update prompt) and `dispatch.runner` (plugin exec). Tests use
+behind small seams swapped for fakes in tests: `azcli.Default` (the `az` CLI, an
+`azcli.Runner` used for every feed access — index downloads in `internal/index`,
+plugin downloads in `internal/builtins` — so one fake controls the whole feed,
+first-run initialization included), `index.prompt` (the update prompt) and
+`dispatch.runner` (plugin exec). Tests use
 `internal/testutil.Isolate` (temp `HOME` so `~/.dongle` is a temp dir, empty
 `PATH`, so no real `az` or feed)
 and `testutil.Capture` (stdout/stderr).

@@ -18,6 +18,12 @@ type Runner interface {
 	Run(args []string, stdout, stderr io.Writer) error
 }
 
+// Default is the Runner every package uses to reach the Azure CLI. It's
+// the one seam tests swap for a fake: index downloads (internal/index) and
+// plugin downloads (internal/builtins) both go through it, so a test of
+// first-run initialization, which does both, controls the whole feed.
+var Default Runner = System{}
+
 // System is the production Runner: it execs the `az` found on PATH.
 type System struct{}
 

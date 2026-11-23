@@ -179,7 +179,7 @@ func TestInstallFailures(t *testing.T) {
 		{
 			name:       "no index and no feed",
 			setup:      func(t *testing.T, f *fakeAz) {},
-			wantStderr: []string{"error:", "Azure CLI is required"},
+			wantStderr: []string{"error:", "ERROR: package " + indexPackage + " not found"},
 		},
 		{
 			name:       "unreadable state",

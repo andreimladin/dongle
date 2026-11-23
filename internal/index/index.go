@@ -70,15 +70,10 @@ func SetDefaults(org, project, feed, pkg string) {
 	injected.indexPackage = pkg
 }
 
-// Dependency seams: the production implementations below, swapped for
-// fakes in tests so the refresh logic runs without a real `az` or a
-// terminal to prompt on.
-var (
-	// az runs the Azure CLI for feed queries and index downloads.
-	az azcli.Runner = azcli.System{}
-	// prompt asks the user whether to update the index (see Prepare).
-	prompt prompter = terminalPrompter{}
-)
+// prompt asks the user whether to update the index (see Prepare). It's a
+// seam: tests swap in a fake so the prompt logic runs without a terminal.
+// (Feed access goes through azcli.Default, the other seam.)
+var prompt prompter = terminalPrompter{}
 
 // prompter asks the user a yes/no question, when one can be asked at all.
 type prompter interface {
@@ -205,7 +200,7 @@ func download() error {
 // TODO: verify the Packaging/Packages area+resource names and api-version
 // against the az CLI / azure-devops extension version you deploy with.
 func LatestVersion() (string, error) {
-	if err := az.LookPath(); err != nil {
+	if err := azcli.Default.LookPath(); err != nil {
 		return "", errAzMissing
 	}
 	route := []string{"feedId=" + injected.indexFeed}
@@ -229,7 +224,7 @@ func LatestVersion() (string, error) {
 		"--output", "json",
 	)
 	var stdout, stderr bytes.Buffer
-	if err := az.Run(args, &stdout, &stderr); err != nil {
+	if err := azcli.Default.Run(args, &stdout, &stderr); err != nil {
 		return "", AzError("az query latest "+injected.indexPackage+" version", err, stderr.Bytes())
 	}
 	return parseLatestVersion(stdout.Bytes(), injected.indexPackage)
@@ -290,7 +285,7 @@ type Latest struct {
 // into a staging dir under the data dir (same filesystem, so Apply's swap
 // is a rename). The caller must Apply or Discard the result.
 func Fetch(version string) (*Latest, error) {
-	if err := az.LookPath(); err != nil {
+	if err := azcli.Default.LookPath(); err != nil {
 		return nil, errAzMissing
 	}
 	stagingRoot := filepath.Join(state.DataDir(), ".staging")
@@ -460,7 +455,7 @@ func downloadArchive(destDir, version string) (string, error) {
 	// az's stderr is captured rather than inherited so it can't garble a
 	// spinner; it's surfaced in the error if the download fails.
 	var stderr bytes.Buffer
-	if err := az.Run(args, nil, &stderr); err != nil {
+	if err := azcli.Default.Run(args, nil, &stderr); err != nil {
 		return "", AzError("az download "+injected.indexPackage+"@"+version, err, stderr.Bytes())
 	}
 

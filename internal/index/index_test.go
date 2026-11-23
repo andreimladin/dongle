@@ -862,3 +862,71 @@ func TestParseDefaultsFileMissing(t *testing.T) {
 		t.Fatalf("missing file: got %v, %v", got, err)
 	}
 }
+
+func TestFetchedIndexLoadAndDefaults(t *testing.T) {
+	e := newEnv(t)
+	cache(t, "1.0.0", map[string]string{"old": manifest("old", "1.0.0")}, false)
+	archive := tarGz(t, map[string]string{
+		"VERSION":             "2.0.0",
+		DefaultsFile:          "defaults:\n  - deploy\n",
+		"plugins/deploy.yaml": manifest("deploy", "1.2.0"),
+	})
+	e.feed.archives["*"] = archive
+
+	l, err := Fetch("*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Discard()
+
+	// Read from the fetched index before it's applied...
+	if names, err := l.Defaults(); err != nil || !reflect.DeepEqual(names, []string{"deploy"}) {
+		t.Fatalf("Defaults() = %v, %v", names, err)
+	}
+	if m, err := l.Load("deploy"); err != nil || m.Version != "1.2.0" {
+		t.Fatalf("Load(deploy) = %+v, %v", m, err)
+	}
+	if _, err := l.Load("old"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Load(old) err = %v: the fetched index must not fall back to the cache", err)
+	}
+	// ...while the cache is still the old one.
+	if v := cachedVersion(t); v != "1.0.0" {
+		t.Fatalf("cache changed before Apply: version %q", v)
+	}
+	if _, err := Load("deploy"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("cache changed before Apply")
+	}
+}
+
+func TestFetchedIndexWithoutDefaultsFile(t *testing.T) {
+	e := newEnv(t)
+	e.feed.archives["*"] = indexArchive(t, "2.0.0", nil)
+	l, err := Fetch("*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Discard()
+	if names, err := l.Defaults(); err != nil || names != nil {
+		t.Fatalf("an index published before defaults.yaml existed: got %v, %v; want no defaults", names, err)
+	}
+}
+
+func TestConfigured(t *testing.T) {
+	defer SetDefaults("", "", "", "")
+	cases := []struct {
+		org, project, feed, pkg string
+		want                    bool
+	}{
+		{"", "", "", "dongle-index", false}, // a plain `go build ./cmd`
+		{"org", "", "", "dongle-index", false},
+		{"", "", "feed", "dongle-index", false},
+		{"org", "", "feed", "dongle-index", true},
+		{"org", "proj", "feed", "dongle-index", true},
+	}
+	for _, c := range cases {
+		SetDefaults(c.org, c.project, c.feed, c.pkg)
+		if got := Configured(); got != c.want {
+			t.Errorf("Configured() with org=%q feed=%q = %v, want %v", c.org, c.feed, got, c.want)
+		}
+	}
+}

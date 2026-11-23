@@ -1,6 +1,9 @@
 package builtins
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -10,18 +13,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andreimladin/dongle/internal/azcli"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
 
-// fakeAz stands in for `az artifacts universal download`: it drops a
-// plugin binary (named unpredictably, as real packages may be) into --path.
+// indexPackage is the index feed package every test's build "bakes in"
+// (see newEnv).
+const indexPackage = "dongle-index"
+
+// fakeAz stands in for the Azure CLI (azcli.Default), which every feed
+// access goes through:
+//   - plugin downloads (`az artifacts universal download --name <pkg>`)
+//     drop a plugin binary, named unpredictably as real packages may be,
+//     into --path and are recorded in calls;
+//   - index traffic — the latest-version query (`az devops invoke`) and
+//     the index archive download — is served from the published index
+//     (see publishIndex) and recorded in indexCalls.
 type fakeAz struct {
 	missing bool
-	failFor map[string]bool // package names whose download fails
-	extra   bool            // also drop a second file
-	calls   [][]string
+	failFor map[string]bool // package names (plugin or index) whose download fails
+	extra   bool            // plugin downloads also drop a second file
+	calls   [][]string      // plugin downloads
+
+	index        []byte // published index archive; nil: no index on the feed
+	indexVersion string
+	indexCalls   [][]string
 }
 
 func (f *fakeAz) LookPath() error {
@@ -32,8 +50,25 @@ func (f *fakeAz) LookPath() error {
 }
 
 func (f *fakeAz) Run(args []string, stdout, stderr io.Writer) error {
-	f.calls = append(f.calls, args)
 	name, version, dest := flagValue(args, "--name"), flagValue(args, "--version"), flagValue(args, "--path")
+	switch {
+	case args[0] == "devops": // latest index version query
+		f.indexCalls = append(f.indexCalls, args)
+		if f.index == nil {
+			fmt.Fprint(stderr, "ERROR: package "+indexPackage+" not found")
+			return errors.New("exit status 1")
+		}
+		fmt.Fprintf(stdout, `{"value":[{"name":%q,"versions":[{"version":%q,"isLatest":true}]}]}`, indexPackage, f.indexVersion)
+		return nil
+	case name == indexPackage: // index archive download
+		f.indexCalls = append(f.indexCalls, args)
+		if f.index == nil || f.failFor[name] {
+			fmt.Fprint(stderr, "ERROR: package "+indexPackage+" not found")
+			return errors.New("exit status 1")
+		}
+		return os.WriteFile(filepath.Join(dest, "index.tar.gz"), f.index, 0o644)
+	}
+	f.calls = append(f.calls, args)
 	if f.failFor[name] {
 		fmt.Fprint(stderr, "ERROR: unauthorized")
 		return errors.New("exit status 1")
@@ -57,16 +92,68 @@ func flagValue(args []string, flag string) string {
 	return ""
 }
 
-// newEnv isolates the test (temp data dir, empty PATH so internal/index
-// can never reach a real az) and installs a fake az for artifact
-// downloads.
+// downloadedPackages returns the --name of every plugin download, in order.
+func (f *fakeAz) downloadedPackages() []string {
+	var out []string
+	for _, c := range f.calls {
+		out = append(out, flagValue(c, "--name"))
+	}
+	return out
+}
+
+// publishIndex puts an index archive on the fake feed: its VERSION, its
+// defaults.yaml (omitted when defaults is nil) and a manifest per plugin.
+func (f *fakeAz) publishIndex(t *testing.T, version string, defaults []string, plugins ...plugin) {
+	t.Helper()
+	files := map[string]string{"VERSION": version + "\n"}
+	if defaults != nil {
+		files[index.DefaultsFile] = "defaults:\n"
+		for _, d := range defaults {
+			files[index.DefaultsFile] += "  - " + d + "\n"
+		}
+	}
+	for _, p := range plugins {
+		files["plugins/"+p.name+".yaml"] = p.yaml()
+	}
+	f.index, f.indexVersion = tarGz(t, files), version
+}
+
+func tarGz(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, body := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// newEnv isolates the test (temp HOME so ~/.dongle is a temp dir, empty
+// PATH) and installs a fake az with an index feed identity "baked in"; the
+// feed has no index until the test publishes one.
 func newEnv(t *testing.T) *fakeAz {
 	t.Helper()
 	testutil.Isolate(t)
 	f := &fakeAz{failFor: map[string]bool{}}
-	orig := az
-	az = f
-	t.Cleanup(func() { az = orig })
+	orig := azcli.Default
+	azcli.Default = f
+	index.SetDefaults("acme", "", "plugins", indexPackage)
+	t.Cleanup(func() {
+		azcli.Default = orig
+		index.SetDefaults("", "", "", "")
+	})
 	return f
 }
 

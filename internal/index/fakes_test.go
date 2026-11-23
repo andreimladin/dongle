@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andreimladin/dongle/internal/azcli"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
 
@@ -135,9 +136,9 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	testutil.Isolate(t)
 	e := &env{feed: &fakeFeed{archives: map[string][]byte{}}, prompt: &fakePrompt{}}
-	origAz, origPrompt := az, prompt
-	az, prompt = e.feed, e.prompt
-	t.Cleanup(func() { az, prompt = origAz, origPrompt })
+	origAz, origPrompt := azcli.Default, prompt
+	azcli.Default, prompt = e.feed, e.prompt
+	t.Cleanup(func() { azcli.Default, prompt = origAz, origPrompt })
 	SetDefaults("org", "", "feed", "dongle-index")
 	return e
 }
