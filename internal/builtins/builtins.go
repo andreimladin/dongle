@@ -3,8 +3,8 @@
 // first-run initialization. Each exported function is the whole of one
 // command: it prints its own results/errors and returns the process exit
 // code, so cmd/ stays a thin cobra adapter. The mechanisms underneath
-// (index fetch/cache, installed state, embedded defaults) live in
-// internal/index, internal/state and internal/bootstrap; this package is
+// (index fetch/cache and its defaults list, installed state) live in
+// internal/index and internal/state; this package is
 // the user-facing layer on top of them.
 package builtins
 

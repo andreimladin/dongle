@@ -2,6 +2,8 @@ package index
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -43,5 +45,28 @@ func TestIsFresh(t *testing.T) {
 	}
 	if IsFresh(CheckTTL) {
 		t.Fatal("cache checked over an hour ago reads as fresh")
+	}
+}
+
+func TestParseDefaults(t *testing.T) {
+	got, err := parseDefaults([]byte("defaults:\n  - tacho\n  - bell\n  - ''\n  - tacho\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"tacho", "bell"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, err := parseDefaults(nil); err != nil || len(got) != 0 {
+		t.Fatalf("empty file: got %v, %v", got, err)
+	}
+	if _, err := parseDefaults([]byte("default:\n  - tacho\n")); err == nil {
+		t.Fatal("unknown key: want error")
+	}
+}
+
+func TestParseDefaultsFileMissing(t *testing.T) {
+	got, err := ParseDefaultsFile(filepath.Join(t.TempDir(), DefaultsFile))
+	if err != nil || got != nil {
+		t.Fatalf("missing file: got %v, %v", got, err)
 	}
 }

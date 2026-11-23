@@ -1,4 +1,5 @@
-# Publishes this repo's plugin index (plugins/*.yaml manifests) as a
+# Publishes this repo's plugin index (plugins/*.yaml manifests, plus the
+# top-level defaults.yaml list of plugins installed on first run) as a
 # versioned Universal Package to the shared Azure Artifacts feed, so the
 # dongle host CLI can download+cache it instead of git-cloning this repo
 # (see dongle's internal/index and its README's "Index access" section).
@@ -76,6 +77,18 @@ steps:
         echo "error: no plugins/ directory to archive" >&2
         exit 1
       fi
+      # defaults.yaml (the plugins dongle installs on a user's first run)
+      # is required: dongle embeds no default list of its own.
+      if [ ! -f defaults.yaml ]; then
+        echo "error: no defaults.yaml to archive" >&2
+        exit 1
+      fi
+      while IFS= read -r name; do
+        if [ ! -f "plugins/$name.yaml" ]; then
+          echo "error: defaults.yaml lists '$name' but plugins/$name.yaml does not exist" >&2
+          exit 1
+        fi
+      done < <(sed -n 's/^[[:space:]]*-[[:space:]]*\([^[:space:]#]*\).*/\1/p' defaults.yaml)
 
       # VERSION travels inside the archive itself, alongside plugins/, so
       # dongle can record which index version it downloaded just by
@@ -83,12 +96,12 @@ steps:
       # out-of-band. See dongle's internal/index, which reads this file
       # after extraction.
       echo -n "$(VERSION)" >VERSION
-      tar -czf index.tar.gz VERSION plugins
+      tar -czf index.tar.gz VERSION defaults.yaml plugins
       rm -f VERSION
 
-      echo "archived plugins/ (+ VERSION) -> index.tar.gz:"
+      echo "archived plugins/ (+ VERSION, defaults.yaml) -> index.tar.gz:"
       tar -tzf index.tar.gz
-    displayName: "Archive plugins/ -> index.tar.gz"
+    displayName: "Archive plugins/ + defaults.yaml -> index.tar.gz"
 
   - script: |
       set -euo pipefail

@@ -15,7 +15,7 @@ import (
 )
 
 // Build-time build inputs, injected via -ldflags at build time (see
-// scripts/build.sh and configs/build.yaml — the human-edited source of
+// scripts/build.sh and configs/index.yaml — the human-edited source of
 // truth that script bakes these values from). A plain `go build ./cmd`
 // leaves them at these defaults: hostVersion "dev", no index feed identity
 // (DONGLE_INDEX_ORG/DONGLE_INDEX_FEED/DONGLE_INDEX_PACKAGE are then
@@ -173,10 +173,13 @@ func Execute() int {
 	// internal/index before any refresh/plugin command runs.
 	index.SetDefaults(indexOrg, indexProject, indexFeed, indexPackage)
 
-	// Batteries-included binaries (built with -tags embed) unpack their
-	// embedded index and default plugins here on first run, before any
-	// dispatch happens. Plain builds embed nothing, so it's a no-op.
-	builtins.Initialize()
+	// First run downloads the plugin index and installs its default
+	// plugins before any command runs — whatever the command, --help
+	// included. Nothing is embedded in the binary, so this needs the feed;
+	// on failure nothing is changed and the next run retries.
+	if code := builtins.Initialize(hostVersion, protocol); code != 0 {
+		return code
+	}
 
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {

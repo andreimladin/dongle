@@ -119,17 +119,18 @@ Open a new terminal and run:
 dongle --version
 ```
 
-The first time, dongle sets itself up: it unpacks its plugin index and
-installs the default plugins. This happens only once and takes a few
-seconds:
+The first time, dongle sets itself up: it downloads the plugin index from
+the feed and installs the default plugins. This happens only once and takes
+a few seconds. **It needs network access and the `az login` from
+[Step 1](#step-1--prerequisites)**:
 
 ```
-✓ Initialized plugin index 1.4.0
+✓ Downloaded plugin index 1.4.0
 ✓ Installed tacho 1.2.0
 ✓ Installed bell 0.3.1
 ✓ Initialization complete.
 dongle    1.0.0
-index     1.4.0 (embedded)
+index     1.4.0
 
 installed plugins:
   bell    0.3.1
@@ -137,6 +138,10 @@ installed plugins:
 ```
 
 (Your versions and default plugins may differ.)
+
+If you see `couldn't reach the feed to initialize dongle`, check your
+connection and that you're signed in (`az login`), then run the command
+again: nothing was changed, and dongle starts the setup over.
 
 You're ready. Next, find and install plugins:
 [Use dongle commands](../how-to/use-commands.md).

@@ -1,5 +1,30 @@
 # dongle release notes
 
+## Unreleased
+
+**A smaller dongle that sets itself up from the feed.**
+
+### What changed
+
+- **Nothing is built into the dongle executable any more.** Earlier
+  releases shipped with a copy of the plugin index and the default plugins
+  inside. Now the first run downloads the latest plugin index from the feed
+  and installs the default plugins from it, showing progress as it goes.
+- **The default plugins are decided by the index.** They're listed in the
+  index's `defaults.yaml`, so changing them takes an index release, not a
+  dongle release.
+- **`dongle --version` no longer shows `(embedded)`** next to the index
+  version.
+
+### What it means for you
+
+- **The first run needs the feed**: network access and `az login`. If the
+  feed can't be reached, dongle says so, changes nothing and exits with an
+  error; run it again once you're connected. This applies to every command
+  on the first run, `dongle --help` included.
+- **Already using dongle?** Nothing changes for you: your index and plugins
+  stay as they are.
+
 ## dongle v1.0.1
 
 **Fewer index checks, faster commands.**

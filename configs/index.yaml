@@ -1,6 +1,10 @@
-# build.yaml — the single source of truth for the index feed identity and
-# the embedded plugin list. Build input; read at build time by
+# index.yaml — the single source of truth for the index feed identity baked
+# into release binaries via -ldflags. Build input; read at build time by
 # tools/readconfig, not at runtime.
+#
+# There is no plugin list here: release binaries embed nothing. The plugins
+# installed by default on first run are declared in the index itself
+# (defaults.yaml at the index repo's root).
 
 # TODO: replace with the real Azure Artifacts feed identity the
 # "dongle-index" Universal Package is published to (see the index repo's
@@ -11,11 +15,3 @@ index:
   project: "" # TODO: set for a project-scoped feed; leave empty for org-scoped
   feed: "[FEED]" # TODO: set the real shared feed name
   package: dongle-index # must match PACKAGE_NAME in the index repo's publish pipeline
-
-# Plugins embedded into a release build (requires `-tags embed`; see
-# internal/bootstrap). Names only — each plugin's exact version is read
-# from its own manifest in the downloaded index at build time, so this list
-# never drifts out of sync with what the index actually publishes.
-embedded:
-  - tacho
-  - bell

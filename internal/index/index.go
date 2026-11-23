@@ -10,18 +10,15 @@
 // downloads. This package owns that whole flow, including its prompt,
 // spinners and the index summary.
 //
-// A binary built with -tags embed also carries a seed copy of that same
-// archive baked in at build time (see internal/bootstrap.EmbeddedIndex and
-// scripts/build.sh's fetch_embedded). EnsureCache extracts that seed into
-// the cache on a first run with nothing cached yet, so a released dongle
-// has a working index from its very first run, fully offline; a plain
-// `go build ./cmd` embeds nothing, so that path falls back to a feed
-// download as before. CachedOrigin reports which kind — embedded seed or
-// feed-fetched — is currently in the cache.
+// Nothing is baked into the binary: the index only ever comes from the
+// feed (and this cache of it). On first run internal/builtins.Initialize
+// downloads it (Fetch), reads the archive's top-level defaults.yaml (see
+// Latest.Defaults) and installs the plugins it lists, so first run needs
+// feed access.
 //
 // The feed package identity (org/project/feed/package name) is a
 // build-time build input — baked in via -ldflags at build time (see
-// cmd/root.go and configs/build.yaml) and wired into this package once at
+// cmd/root.go and configs/index.yaml) and wired into this package once at
 // startup via SetDefaults. DONGLE_INDEX_ORG / DONGLE_INDEX_PROJECT /
 // DONGLE_INDEX_FEED / DONGLE_INDEX_PACKAGE override them as dev escape
 // hatches; normal users never set them.
@@ -46,7 +43,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/andreimladin/dongle/internal/bootstrap"
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/ui"
@@ -110,16 +106,6 @@ func indexPackage() string {
 func cacheDir() string    { return filepath.Join(state.DataDir(), "index") }
 func metaPath() string    { return filepath.Join(state.DataDir(), "index.meta") }
 func versionPath() string { return filepath.Join(state.DataDir(), "index.version") }
-func originPath() string  { return filepath.Join(state.DataDir(), "index.origin") }
-
-// Origin values recorded in index.origin alongside the cache, so `dongle
-// version` and callers can tell whether the index in use is still the seed
-// baked into this binary at build time or one actually fetched from the
-// feed.
-const (
-	OriginEmbedded = "embedded"
-	OriginFetched  = "fetched"
-)
 
 var ErrNotFound = errors.New("plugin not found in index")
 
@@ -168,13 +154,6 @@ type Selector struct {
 
 // --- refresh lifecycle --------------------------------------------------------
 
-// HasEmbedded reports whether this binary carries a seed index (built with
-// -tags embed and a staged index archive).
-func HasEmbedded() bool {
-	_, _, ok := bootstrap.EmbeddedIndex()
-	return ok
-}
-
 // HasCache reports whether any index is cached locally.
 func HasCache() bool {
 	_, err := os.Stat(cacheDir())
@@ -182,83 +161,14 @@ func HasCache() bool {
 }
 
 // EnsureCache makes sure *some* index is cached, without regard to its
-// age: when nothing is cached yet it seeds the cache from the embedded
-// index (offline), falling back to a feed download only when nothing was
-// embedded. Prepare then checks the feed for a newer index, so the cache
-// is never silently replaced.
+// age: when nothing is cached yet it downloads the latest from the feed.
+// Prepare then checks the feed for a newer index, so the cache is never
+// silently replaced.
 func EnsureCache() error {
 	if HasCache() {
 		return nil
 	}
-	if seedFromEmbedded() {
-		return nil
-	}
 	return download()
-}
-
-// SeedEmbedded seeds the cache from the index embedded in this binary,
-// replacing whatever is cached, without printing anything (callers may be
-// showing a spinner). ok is false when nothing was embedded (a plain,
-// non -tags-embed build); err reports a failed extraction.
-func SeedEmbedded() (ok bool, err error) { return extractEmbedded() }
-
-// seedFromEmbedded extracts the index archive baked into this binary (see
-// internal/bootstrap.EmbeddedIndex and scripts/build.sh's fetch_embedded)
-// into the cache, so a released binary has a working index from its very
-// first run, fully offline. Returns false — leaving the cache untouched —
-// when nothing was embedded (a plain, non -tags-embed build), so the
-// caller can fall back to a feed download.
-func seedFromEmbedded() bool {
-	ok, err := extractEmbedded()
-	if err != nil {
-		ui.Warnf("could not seed the embedded plugin index: %v", err)
-	}
-	return ok && err == nil
-}
-
-// extractEmbedded does seedFromEmbedded's work without printing: ok is
-// false when nothing was embedded; err reports a failed extraction, which
-// leaves the cache untouched (except for a failure recording its version).
-// Failing to record the origin metadata is not fatal and is ignored: the
-// cache then just reads as fetched. A seeded cache always reads as stale
-// (see IsFresh), so the next automatic check still asks the feed.
-func extractEmbedded() (ok bool, err error) {
-	archive, version, embedded := bootstrap.EmbeddedIndex()
-	if !embedded {
-		return false, nil
-	}
-
-	stagingRoot := filepath.Join(state.DataDir(), ".staging")
-	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
-		return true, err
-	}
-	staging, err := os.MkdirTemp(stagingRoot, "index-embedded-")
-	if err != nil {
-		return true, err
-	}
-	defer os.RemoveAll(staging)
-
-	extractDir := filepath.Join(staging, "extracted")
-	if err := extractTarGzBytes(archive, extractDir); err != nil {
-		return true, err
-	}
-
-	if err := os.RemoveAll(cacheDir()); err != nil {
-		return true, err
-	}
-	if err := os.Rename(extractDir, cacheDir()); err != nil {
-		return true, err
-	}
-
-	if err := os.WriteFile(versionPath(), []byte(version), 0o644); err != nil {
-		return true, err
-	}
-	_ = writeOrigin(OriginEmbedded)
-	// The seed was built into the binary, possibly long ago: it was never
-	// confirmed against the feed, so drop any freshness stamp left by a
-	// previous cache and let the next automatic check run.
-	_ = os.Remove(metaPath())
-	return true, nil
 }
 
 // CachedVersion returns the version of the index currently cached (read
@@ -274,31 +184,6 @@ func CachedVersion() (version string, ok bool) {
 		return "", false
 	}
 	return v, true
-}
-
-// CachedOrigin reports whether the currently cached index is the embedded
-// seed baked into this binary (OriginEmbedded) or one fetched from the
-// feed (OriginFetched) — including a cache first seeded from the embedded
-// copy and later replaced by a successful refresh. ok is false when no
-// index is cached at all. A cache with no index.origin file (one written
-// before origin tracking existed) is treated as OriginFetched, since every
-// such cache could only ever have come from the feed.
-func CachedOrigin() (origin string, ok bool) {
-	if _, cok := CachedVersion(); !cok {
-		return "", false
-	}
-	b, err := os.ReadFile(originPath())
-	if err != nil {
-		return OriginFetched, true
-	}
-	if strings.TrimSpace(string(b)) != OriginEmbedded {
-		return OriginFetched, true
-	}
-	return OriginEmbedded, true
-}
-
-func writeOrigin(origin string) error {
-	return os.WriteFile(originPath(), []byte(origin), 0o644)
 }
 
 // download fetches the latest version of the index package from the feed
@@ -447,8 +332,7 @@ func Fetch(version string) (*Latest, error) {
 }
 
 // Apply installs the fetched index as the cache (atomically replacing the
-// previous one), records its version and origin, and marks the cache
-// fresh.
+// previous one), records its version, and marks the cache fresh.
 func (l *Latest) Apply() error {
 	defer l.Discard()
 	if err := os.RemoveAll(cacheDir()); err != nil {
@@ -462,15 +346,74 @@ func (l *Latest) Apply() error {
 			return err
 		}
 	}
-	if err := writeOrigin(OriginFetched); err != nil {
-		return err
-	}
 	return touchMeta()
 }
 
 // Discard removes the fetched index's staging dir without installing it.
 // Safe to call more than once.
 func (l *Latest) Discard() { os.RemoveAll(l.staging) }
+
+// Load reads plugins/<name>.yaml from the fetched (not yet applied) index,
+// so a caller can resolve plugins against it before swapping it in as the
+// cache — first-run init installs the defaults this way, leaving no cache
+// behind if it fails part-way.
+func (l *Latest) Load(name string) (*Manifest, error) { return loadFrom(l.extractDir, name) }
+
+// Defaults returns the plugin names listed in the fetched index's
+// top-level defaults file (see DefaultsFile).
+func (l *Latest) Defaults() ([]string, error) {
+	return ParseDefaultsFile(filepath.Join(l.extractDir, DefaultsFile))
+}
+
+// DefaultsFile is the index archive's top-level list of plugins installed
+// by default on first run, alongside VERSION and plugins/. It is the single
+// source of truth for that list (see the index repo's README):
+//
+//	defaults:
+//	  - tacho
+//	  - bell
+const DefaultsFile = "defaults.yaml"
+
+// ParseDefaultsFile reads a defaults file (see DefaultsFile). A missing
+// file means no defaults (an index published before the file existed).
+// Unknown keys are rejected, blank names are skipped and duplicates are
+// dropped, keeping the listed order.
+func ParseDefaultsFile(path string) ([]string, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parseDefaults(b)
+}
+
+func parseDefaults(b []byte) ([]string, error) {
+	var doc struct {
+		Defaults []string `yaml:"defaults"`
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("invalid %s: %w", DefaultsFile, err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range doc.Defaults {
+		n = strings.TrimSpace(n)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// Configured reports whether an index feed identity is known (baked in at
+// build time or set via DONGLE_INDEX_*). A plain `go build ./cmd` has none.
+func Configured() bool { return indexOrg() != "" && indexFeed() != "" }
 
 // IsNewer reports whether index version a is newer than b. Index versions
 // are dotted numbers (e.g. 2024.03.01.1), compared part by part
@@ -570,13 +513,6 @@ func extractTarGz(archivePath, destDir string) error {
 	return extractTarGzReader(f, destDir)
 }
 
-// extractTarGzBytes is extractTarGzReader over an in-memory archive — the
-// index archive embedded into the binary (see seedFromEmbedded) — rather
-// than one just downloaded to disk.
-func extractTarGzBytes(archive []byte, destDir string) error {
-	return extractTarGzReader(bytes.NewReader(archive), destDir)
-}
-
 // extractTarGzReader extracts a tar+gzip stream into destDir, which must
 // not already exist. Rejects entries that would escape destDir
 // ("zip-slip").
@@ -673,10 +609,10 @@ const (
 // reach the feed is not an error: the cached index is used and a warning
 // says so. The returned error means no index is available at all.
 func Prepare(mode SyncMode, mutating bool) error {
-	if !HasCache() && !HasEmbedded() {
-		// Nothing cached and nothing embedded to seed from: the first
-		// download is the latest by definition, so there's nothing newer
-		// to check for afterwards.
+	if !HasCache() {
+		// Nothing cached (e.g. a dev build that skipped first-run init, or
+		// a deleted cache): the first download is the latest by definition,
+		// so there's nothing newer to check for afterwards.
 		sp := ui.StartSpinner("Downloading plugin index...")
 		err := EnsureCache()
 		sp.Stop()
@@ -748,9 +684,9 @@ func Prepare(mode SyncMode, mutating bool) error {
 // CheckTTL (`dongle update`): it asks the feed for the latest index
 // version (metadata only), downloads the archive only when that version
 // is newer than the cached one, and then prints the index version and the
-// plugins it lists. On failure the existing cache stays in use — or, with
-// nothing cached, the embedded seed is extracted — and the error is
-// returned (already reported), since the command's one job didn't happen.
+// plugins it lists. On failure the existing cache (if any) stays in use and
+// the error is returned (already reported), since the command's one job
+// didn't happen.
 func Update() error {
 	prev, _ := CachedVersion()
 	sp := ui.StartSpinner("Checking for a newer plugin index...")
@@ -781,15 +717,9 @@ func Update() error {
 	return nil
 }
 
-// updateFailed reports Update's failure, falling back to the embedded
-// seed when nothing is cached, and returns err.
+// updateFailed reports Update's failure and returns err.
 func updateFailed(err error) error {
 	ui.Errorf("could not update the plugin index: %v", err)
-	if !HasCache() {
-		if _, serr := SeedEmbedded(); serr != nil {
-			ui.Warnf("could not seed the embedded plugin index: %v", serr)
-		}
-	}
 	if v, ok := CachedVersion(); ok {
 		ui.Infof("Still using plugin index %s.", v)
 	}
@@ -814,8 +744,7 @@ func MarkChecked() error { return touchMeta() }
 
 // IsFresh reports whether the cached index was refreshed from (or
 // confirmed current against) the feed less than ttl ago. A cache with no
-// freshness stamp — never checked, or seeded from the embedded copy — is
-// never fresh.
+// freshness stamp (never checked) is never fresh.
 func IsFresh(ttl time.Duration) bool {
 	age, err := cacheAge()
 	return err == nil && age >= 0 && age < ttl
@@ -891,8 +820,12 @@ func installedNote(p ui.Palette, st *state.State, m Manifest) string {
 // --- lookups ------------------------------------------------------------------
 
 // Load reads and parses the manifest plugins/<name>.yaml from the local cache.
-func Load(name string) (*Manifest, error) {
-	path := filepath.Join(cacheDir(), "plugins", name+".yaml")
+func Load(name string) (*Manifest, error) { return loadFrom(cacheDir(), name) }
+
+// loadFrom reads and parses plugins/<name>.yaml under an extracted index
+// root dir (the cache, or a fetched-but-not-yet-applied Latest).
+func loadFrom(root, name string) (*Manifest, error) {
+	path := filepath.Join(root, "plugins", name+".yaml")
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, ErrNotFound
@@ -907,29 +840,9 @@ func Load(name string) (*Manifest, error) {
 	return &m, nil
 }
 
-// LoadFile reads and parses a manifest from an explicit file path, bypassing
-// the cache (cacheDir/EnsureCache/Fetch) entirely. Purely additive next to
-// Load: used by build-time tools (tools/resolve-plugin) that need to read
-// plugins/<name>.yaml out of an arbitrary extracted index archive — e.g. one
-// just downloaded fresh into a temp dir — without touching the managed cache.
-func LoadFile(path string) (*Manifest, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	var m Manifest
-	if err := yaml.Unmarshal(b, &m); err != nil {
-		return nil, fmt.Errorf("invalid manifest at %s: %w", path, err)
-	}
-	return &m, nil
-}
-
-// LoadFileStrict is LoadFile but rejects unknown YAML fields instead of
-// silently ignoring them. Purely additive next to LoadFile/Load: used only
-// by tools/validate-manifest, which needs to catch manifest typos (e.g. a
+// LoadFileStrict reads and parses a manifest from an explicit file path,
+// bypassing the cache, and rejects unknown YAML fields instead of silently
+// ignoring them. Used only by tools/validate-manifest, which needs to catch manifest typos (e.g. a
 // misspelled field name) that would otherwise pass through unnoticed.
 func LoadFileStrict(path string) (*Manifest, error) {
 	b, err := os.ReadFile(path)
