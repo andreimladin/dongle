@@ -34,9 +34,9 @@ func TestSearchSyncFlagsReachTheIndex(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 			}
-			testutil.MustContain(t, "stdout", stdout, "deploy", "Ship it")
+			mustContain(t, "stdout", stdout, "deploy", "Ship it")
 			if c.stderr != "" {
-				testutil.MustContain(t, "stderr", stderr, c.stderr)
+				mustContain(t, "stderr", stderr, c.stderr)
 			} else if strings.Contains(stderr, "plugin index") {
 				t.Errorf("default mode with a fresh cache should not mention the index:\n%s", stderr)
 			}
@@ -85,7 +85,7 @@ func TestSyncFlagsOnlyOnIndexReadingCommands(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("remove --sync: exit %d, want 2", code)
 	}
-	testutil.MustContain(t, "stderr", stderr, "unknown flag: --sync")
+	mustContain(t, "stderr", stderr, "unknown flag: --sync")
 }
 
 func TestPluginCommandArgCounts(t *testing.T) {
@@ -108,14 +108,14 @@ func TestUpgradeNameIsOptional(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("upgrade: exit %d; stderr:\n%s", code, stderr)
 	}
-	testutil.MustContain(t, "stderr", stderr, "No plugins installed; nothing to upgrade.")
+	mustContain(t, "stderr", stderr, "No plugins installed; nothing to upgrade.")
 
 	// A name: upgrade just that plugin, which must be installed.
 	code, _, stderr = run(t, "upgrade", "deploy")
 	if code != 1 {
 		t.Fatalf("upgrade deploy: exit %d, want 1", code)
 	}
-	testutil.MustContain(t, "stderr", stderr, "deploy is not installed; use `dongle install deploy`")
+	mustContain(t, "stderr", stderr, "deploy is not installed; use `dongle install deploy`")
 }
 
 func TestInstallAndRemove(t *testing.T) {
@@ -131,13 +131,13 @@ func TestInstallAndRemove(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("install: exit %d; stderr:\n%s", code, stderr)
 	}
-	testutil.MustContain(t, "stderr", stderr, "deploy is already installed (version 1.0.0)")
+	mustContain(t, "stderr", stderr, "deploy is already installed (version 1.0.0)")
 
 	code, stdout, _ := run(t, "remove", "deploy")
 	if code != 0 {
 		t.Fatalf("remove: exit %d", code)
 	}
-	testutil.MustContain(t, "stdout", stdout, "Removed deploy")
+	mustContain(t, "stdout", stdout, "Removed deploy")
 	if st, _ := state.Load(); len(st.Plugins) != 0 {
 		t.Fatalf("still installed: %+v", st.Plugins)
 	}

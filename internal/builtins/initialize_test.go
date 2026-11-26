@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/andreimladin/dongle/internal/azcli/azclitest"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
@@ -46,7 +45,7 @@ func assertNothingChanged(t *testing.T) {
 
 func TestInitializeFirstRun(t *testing.T) {
 	f := newEnv(t)
-	publishIndex(t, f, "2024.05.01", []string{"alpha", "bravo"}, alpha, bravo)
+	f.publishIndex(t, "2024.05.01", []string{"alpha", "bravo"}, alpha, bravo)
 
 	code, stdout, stderr := initialize(t)
 	if code != 0 {
@@ -57,10 +56,10 @@ func TestInitializeFirstRun(t *testing.T) {
 	}
 
 	// The latest index was downloaded and the defaults installed from it.
-	if got := f.IndexDownloads(); !reflect.DeepEqual(got, []string{"*"}) {
-		t.Fatalf("index downloads = %v, want one download of the latest (*)", got)
+	if got := flagValue(f.indexCalls[0], "--version"); len(f.indexCalls) != 1 || got != "*" {
+		t.Fatalf("index calls = %v, want one download of the latest (*)", f.indexCalls)
 	}
-	if got, want := f.PluginDownloads(), []string{pkgName("alpha"), pkgName("bravo")}; !reflect.DeepEqual(got, want) {
+	if got, want := f.downloadedPackages(), []string{pkgName("alpha"), pkgName("bravo")}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("plugin downloads = %v, want %v", got, want)
 	}
 	st := loadState(t)
@@ -81,17 +80,17 @@ func TestInitializeFirstRun(t *testing.T) {
 	if !st.DefaultsBootstrapped {
 		t.Error("first run not recorded")
 	}
-	testutil.MustContain(t, "stderr", stderr, "Downloaded plugin index 2024.05.01",
+	mustContain(t, "stderr", stderr, "Downloaded plugin index 2024.05.01",
 		"Installed alpha 1.0.0", "Installed bravo 2.1.0", "Initialization complete.")
 	if entries, _ := os.ReadDir(filepath.Join(state.DataDir(), ".staging")); len(entries) != 0 {
 		t.Errorf("staging left behind: %v", entries)
 	}
 
 	// Every later run is silent and never touches the feed.
-	f.Calls = nil
+	f.indexCalls, f.calls = nil, nil
 	code, stdout, stderr = initialize(t)
-	if code != 0 || stdout != "" || stderr != "" || len(f.Calls) != 0 {
-		t.Fatalf("second run: exit %d, stdout %q, stderr %q, az calls %v", code, stdout, stderr, f.Calls)
+	if code != 0 || stdout != "" || stderr != "" || len(f.indexCalls)+len(f.calls) != 0 {
+		t.Fatalf("second run: exit %d, stdout %q, stderr %q, az calls %v %v", code, stdout, stderr, f.indexCalls, f.calls)
 	}
 }
 
@@ -99,21 +98,21 @@ func TestInitializeIsANoOp(t *testing.T) {
 	t.Run("no index feed baked in (plain go build)", func(t *testing.T) {
 		f := newEnv(t)
 		index.SetDefaults("", "", "", indexPackage)
-		publishIndex(t, f, "1", []string{"alpha"}, alpha)
+		f.publishIndex(t, "1", []string{"alpha"}, alpha)
 		code, stdout, stderr := initialize(t)
-		if code != 0 || stdout != "" || stderr != "" || len(f.Calls) != 0 {
-			t.Fatalf("exit %d, stdout %q, stderr %q, az calls %v", code, stdout, stderr, f.Calls)
+		if code != 0 || stdout != "" || stderr != "" || len(f.indexCalls) != 0 {
+			t.Fatalf("exit %d, stdout %q, stderr %q, index calls %v", code, stdout, stderr, f.indexCalls)
 		}
 	})
 	t.Run("already initialized", func(t *testing.T) {
 		f := newEnv(t)
-		publishIndex(t, f, "1", []string{"alpha"}, alpha)
+		f.publishIndex(t, "1", []string{"alpha"}, alpha)
 		if err := (&state.State{DefaultsBootstrapped: true}).Save(); err != nil {
 			t.Fatal(err)
 		}
 		code, _, stderr := initialize(t)
-		if code != 0 || stderr != "" || len(f.Calls) != 0 {
-			t.Fatalf("exit %d, stderr %q, az calls %v", code, stderr, f.Calls)
+		if code != 0 || stderr != "" || len(f.indexCalls) != 0 {
+			t.Fatalf("exit %d, stderr %q, index calls %v", code, stderr, f.indexCalls)
 		}
 	})
 }
@@ -122,19 +121,19 @@ func TestInitializeSkipsDefaultsThatCanNeverInstall(t *testing.T) {
 	f := newEnv(t)
 	tooNew := plugin{name: "toonew", version: "1.0.0", host: ">=9.0.0", protocol: "v1"}
 	noBuild := plugin{name: "nobuild", version: "1.0.0", host: ">=0.1.0", protocol: "v1", noPlatform: true}
-	publishIndex(t, f, "1", []string{"ghost", "toonew", "nobuild", "alpha"}, tooNew, noBuild, alpha)
+	f.publishIndex(t, "1", []string{"ghost", "toonew", "nobuild", "alpha"}, tooNew, noBuild, alpha)
 
 	code, _, stderr := initialize(t)
 	if code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
 	// Retrying wouldn't help these, so they're skipped, not fatal.
-	testutil.MustContain(t, "stderr", stderr,
+	mustContain(t, "stderr", stderr,
 		"warning: skipping default plugin ghost:",
 		"warning: skipping default plugin toonew: toonew requires host >=9.0.0",
 		"warning: skipping default plugin nobuild: nobuild 1.0.0 has no build for",
 		"Installed alpha 1.0.0", "Initialization complete.")
-	if got := f.PluginDownloads(); !reflect.DeepEqual(got, []string{pkgName("alpha")}) {
+	if got := f.downloadedPackages(); !reflect.DeepEqual(got, []string{pkgName("alpha")}) {
 		t.Fatalf("plugin downloads = %v, want only alpha", got)
 	}
 	if st := loadState(t); !st.DefaultsBootstrapped || len(st.Plugins) != 1 {
@@ -144,13 +143,13 @@ func TestInitializeSkipsDefaultsThatCanNeverInstall(t *testing.T) {
 
 func TestInitializeKeepsPluginsInstalledBeforeFirstRun(t *testing.T) {
 	f := newEnv(t)
-	publishIndex(t, f, "1", []string{"alpha", "bravo"}, alpha, bravo)
+	f.publishIndex(t, "1", []string{"alpha", "bravo"}, alpha, bravo)
 	installed(t, state.Installed{Name: "alpha", ActiveVersion: "0.9.0"})
 
 	if code, _, stderr := initialize(t); code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
-	if got := f.PluginDownloads(); !reflect.DeepEqual(got, []string{pkgName("bravo")}) {
+	if got := f.downloadedPackages(); !reflect.DeepEqual(got, []string{pkgName("bravo")}) {
 		t.Fatalf("plugin downloads = %v, want only bravo", got)
 	}
 	if v := loadState(t).Plugins["alpha"].ActiveVersion; v != "0.9.0" {
@@ -160,12 +159,12 @@ func TestInitializeKeepsPluginsInstalledBeforeFirstRun(t *testing.T) {
 
 func TestInitializeWithoutDefaultsFile(t *testing.T) {
 	f := newEnv(t)
-	publishIndex(t, f, "1", nil, alpha) // an index from before defaults.yaml existed
+	f.publishIndex(t, "1", nil, alpha) // an index from before defaults.yaml existed
 	if code, _, stderr := initialize(t); code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
-	if len(f.PluginCalls()) != 0 {
-		t.Fatalf("installed plugins with no defaults listed: %v", f.PluginCalls())
+	if len(f.calls) != 0 {
+		t.Fatalf("installed plugins with no defaults listed: %v", f.calls)
 	}
 	if st := loadState(t); !st.DefaultsBootstrapped {
 		t.Fatal("first run not recorded")
@@ -178,35 +177,32 @@ func TestInitializeWithoutDefaultsFile(t *testing.T) {
 func TestInitializeFailuresChangeNothing(t *testing.T) {
 	cases := []struct {
 		name       string
-		setup      func(t *testing.T, f *azclitest.Feed)
+		setup      func(t *testing.T, f *fakeAz)
 		wantStderr []string
 	}{
 		{
 			name:  "feed unreachable",
-			setup: func(t *testing.T, f *azclitest.Feed) {}, // nothing published
+			setup: func(t *testing.T, f *fakeAz) {}, // nothing published
 			wantStderr: []string{"error: couldn't reach the feed to initialize dongle",
 				"cause: az download " + indexPackage + "@*", "ERROR: package " + indexPackage + " not found"},
 		},
 		{
-			name: "az not installed",
-			setup: func(t *testing.T, f *azclitest.Feed) {
-				publishIndex(t, f, "1", []string{"alpha"}, alpha)
-				f.Missing = true
-			},
+			name:       "az not installed",
+			setup:      func(t *testing.T, f *fakeAz) { f.publishIndex(t, "1", []string{"alpha"}, alpha); f.missing = true },
 			wantStderr: []string{"couldn't reach the feed", "the Azure CLI is required"},
 		},
 		{
 			name: "a default fails to download after another was installed",
-			setup: func(t *testing.T, f *azclitest.Feed) {
-				publishIndex(t, f, "1", []string{"alpha", "bravo"}, alpha, bravo)
-				f.FailPackages[pkgName("bravo")] = true
+			setup: func(t *testing.T, f *fakeAz) {
+				f.publishIndex(t, "1", []string{"alpha", "bravo"}, alpha, bravo)
+				f.failFor[pkgName("bravo")] = true
 			},
 			wantStderr: []string{"couldn't reach the feed", "az download " + pkgName("bravo"), "ERROR: unauthorized"},
 		},
 		{
 			name: "invalid defaults file",
-			setup: func(t *testing.T, f *azclitest.Feed) {
-				f.Publish("1", testutil.TarGz(t, map[string]string{"VERSION": "1", index.DefaultsFile: "default:\n  - alpha\n"}))
+			setup: func(t *testing.T, f *fakeAz) {
+				f.index = tarGz(t, map[string]string{"VERSION": "1", index.DefaultsFile: "default:\n  - alpha\n"})
 			},
 			wantStderr: []string{"error: reading the plugin index's default plugins: invalid defaults.yaml"},
 		},
@@ -222,8 +218,8 @@ func TestInitializeFailuresChangeNothing(t *testing.T) {
 			if stdout != "" {
 				t.Errorf("stdout = %q", stdout)
 			}
-			testutil.MustContain(t, "stderr", stderr, append(c.wantStderr, "Nothing was changed; run dongle again to retry.")...)
-			testutil.MustNotContain(t, "stderr", stderr, "Initialization complete.")
+			mustContain(t, "stderr", stderr, append(c.wantStderr, "Nothing was changed; run dongle again to retry.")...)
+			mustNotContain(t, "stderr", stderr, "Initialization complete.")
 			assertNothingChanged(t)
 			if entries, _ := os.ReadDir(filepath.Join(state.DataDir(), ".staging")); len(entries) != 0 {
 				t.Errorf("staging left behind: %v", entries)
@@ -234,13 +230,13 @@ func TestInitializeFailuresChangeNothing(t *testing.T) {
 
 func TestInitializeRetriesCleanlyAfterAFailure(t *testing.T) {
 	f := newEnv(t)
-	publishIndex(t, f, "1", []string{"alpha", "bravo"}, alpha, bravo)
-	f.FailPackages[pkgName("bravo")] = true
+	f.publishIndex(t, "1", []string{"alpha", "bravo"}, alpha, bravo)
+	f.failFor[pkgName("bravo")] = true
 	if code, _, _ := initialize(t); code != 1 {
 		t.Fatalf("first attempt: exit %d, want 1", code)
 	}
 
-	delete(f.FailPackages, pkgName("bravo"))
+	delete(f.failFor, pkgName("bravo"))
 	if code, _, stderr := initialize(t); code != 0 {
 		t.Fatalf("retry: exit %d; stderr:\n%s", code, stderr)
 	}
@@ -252,13 +248,13 @@ func TestInitializeRetriesCleanlyAfterAFailure(t *testing.T) {
 
 func TestInitializeUnreadableState(t *testing.T) {
 	f := newEnv(t)
-	publishIndex(t, f, "1", []string{"alpha"}, alpha)
+	f.publishIndex(t, "1", []string{"alpha"}, alpha)
 	corruptState(t)
 	code, _, stderr := initialize(t)
-	if code != 1 || len(f.Calls) != 0 {
-		t.Fatalf("exit %d, az calls %v", code, f.Calls)
+	if code != 1 || len(f.indexCalls) != 0 {
+		t.Fatalf("exit %d, index calls %v", code, f.indexCalls)
 	}
-	testutil.MustContain(t, "stderr", stderr, "error: reading state:")
+	mustContain(t, "stderr", stderr, "error: reading state:")
 }
 
 // rollbackDefaults must only remove what this run placed: other versions

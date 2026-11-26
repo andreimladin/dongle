@@ -86,9 +86,8 @@ func TestAzError(t *testing.T) {
 
 func TestFeedIdentityIgnoresEnvironment(t *testing.T) {
 	e := newEnv(t)
-	e.feed.Latest = "1.0.0"
+	e.feed.latest = "1.0.0"
 	SetDefaults("built-org", "", "built-feed", "built-pkg")
-	e.feed.IndexPackage = "built-pkg"
 	// These used to override the built-in feed identity; they must not.
 	t.Setenv("DONGLE_INDEX_ORG", "evil-org")
 	t.Setenv("DONGLE_INDEX_PROJECT", "evil-project")
@@ -104,10 +103,10 @@ func TestFeedIdentityIgnoresEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.Discard()
-	for _, call := range e.feed.Calls {
+	for _, call := range e.feed.calls {
 		args := strings.Join(call, " ")
-		testutil.MustContain(t, "az args", args, "https://dev.azure.com/built-org", "built-feed", "built-pkg")
-		testutil.MustNotContain(t, "az args", args, "evil")
+		mustContain(t, "az args", args, "https://dev.azure.com/built-org", "built-feed", "built-pkg")
+		mustNotContain(t, "az args", args, "evil")
 	}
 }
 
@@ -150,7 +149,7 @@ func TestExtractTarGz(t *testing.T) {
 
 func TestExtractTarGzRejectsEscapes(t *testing.T) {
 	for _, name := range []string{"../evil", "plugins/../../evil", "/../evil"} {
-		archive := testutil.TarGz(t, map[string]string{name: "x"})
+		archive := tarGz(t, map[string]string{name: "x"})
 		dest := filepath.Join(t.TempDir(), "out")
 		err := extractTarGzReader(bytes.NewReader(archive), dest)
 		if err == nil || !strings.Contains(err.Error(), "escapes destination") {
@@ -170,7 +169,7 @@ func TestExtractTarGzErrors(t *testing.T) {
 		t.Error("want error for a missing archive")
 	}
 	// Valid gzip, truncated tar stream.
-	full := testutil.TarGz(t, map[string]string{"a": strings.Repeat("x", 4096)})
+	full := tarGz(t, map[string]string{"a": strings.Repeat("x", 4096)})
 	var trunc bytes.Buffer
 	gz := gzip.NewWriter(&trunc)
 	r, _ := gzip.NewReader(bytes.NewReader(full))
@@ -369,40 +368,40 @@ func TestCachedVersion(t *testing.T) {
 
 func TestLatestVersionQuery(t *testing.T) {
 	e := newEnv(t)
-	e.feed.Latest = "2024.5.1"
+	e.feed.latest = "2024.5.1"
 
 	SetDefaults("myorg", "", "myfeed", "dongle-index")
 	if v, err := LatestVersion(); err != nil || v != "2024.5.1" {
 		t.Fatalf("got %q, %v", v, err)
 	}
-	args := strings.Join(e.feed.Calls[0], " ")
-	testutil.MustContain(t, "org-scoped query", args,
+	args := strings.Join(e.feed.calls[0], " ")
+	mustContain(t, "org-scoped query", args,
 		"devops invoke", "--organization https://dev.azure.com/myorg", "--area Packaging",
 		"--route-parameters feedId=myfeed --query-parameters", "packageNameQuery=dongle-index")
-	testutil.MustNotContain(t, "org-scoped query", args, "project=")
+	mustNotContain(t, "org-scoped query", args, "project=")
 
 	SetDefaults("myorg", "myproj", "myfeed", "dongle-index")
 	LatestVersion()
-	testutil.MustContain(t, "project-scoped query", strings.Join(e.feed.Calls[1], " "), "feedId=myfeed project=myproj --query-parameters")
+	mustContain(t, "project-scoped query", strings.Join(e.feed.calls[1], " "), "feedId=myfeed project=myproj --query-parameters")
 }
 
 func TestLatestVersionErrors(t *testing.T) {
 	e := newEnv(t)
-	e.feed.Missing = true
+	e.feed.missing = true
 	if _, err := LatestVersion(); !errors.Is(err, errAzMissing) {
 		t.Fatalf("az missing: err = %v", err)
 	}
-	if len(e.feed.Calls) != 0 {
+	if len(e.feed.calls) != 0 {
 		t.Fatal("az must not be run when it isn't installed")
 	}
 
-	e.feed.Missing = false
-	e.feed.QueryErr = errors.New("exit status 1")
+	e.feed.missing = false
+	e.feed.queryErr = errors.New("exit status 1")
 	_, err := LatestVersion()
 	if err == nil {
 		t.Fatal("want error")
 	}
-	testutil.MustContain(t, "query error", err.Error(), "az query latest dongle-index version", "exit status 1", "ERROR: unauthorized")
+	mustContain(t, "query error", err.Error(), "az query latest dongle-index version", "exit status 1", "ERROR: unauthorized")
 }
 
 func TestFetch(t *testing.T) {
@@ -420,7 +419,7 @@ func TestFetch(t *testing.T) {
 		if !strings.HasPrefix(l.staging, filepath.Join(state.DataDir(), ".staging")) {
 			t.Fatalf("staging %q is not under the data dir (Apply's rename must stay on one filesystem)", l.staging)
 		}
-		testutil.MustContain(t, "download args", strings.Join(e.feed.Calls[0], " "),
+		mustContain(t, "download args", strings.Join(e.feed.calls[0], " "),
 			"artifacts universal download", "--organization https://dev.azure.com/org", "--feed feed", "--name dongle-index", "--version 2.0.0")
 		if HasCache() {
 			t.Fatal("Fetch must not touch the cache before Apply")
@@ -428,7 +427,7 @@ func TestFetch(t *testing.T) {
 	})
 	t.Run("falls back to the requested version without a VERSION file", func(t *testing.T) {
 		e := newEnv(t)
-		e.feed.Indexes["3.0.0"] = indexArchive(t, "", nil)
+		e.feed.archives["3.0.0"] = indexArchive(t, "", nil)
 		l, err := Fetch("3.0.0")
 		if err != nil {
 			t.Fatal(err)
@@ -440,7 +439,7 @@ func TestFetch(t *testing.T) {
 	})
 	t.Run("latest without a VERSION file is unversioned", func(t *testing.T) {
 		e := newEnv(t)
-		e.feed.Indexes["*"] = indexArchive(t, "", nil)
+		e.feed.archives["*"] = indexArchive(t, "", nil)
 		l, err := Fetch("*")
 		if err != nil {
 			t.Fatal(err)
@@ -459,7 +458,7 @@ func TestFetch(t *testing.T) {
 			t.Fatal(err)
 		}
 		l.Discard()
-		testutil.MustContain(t, "download args", strings.Join(e.feed.Calls[0], " "), "--project proj --scope project")
+		mustContain(t, "download args", strings.Join(e.feed.calls[0], " "), "--project proj --scope project")
 	})
 }
 
@@ -469,10 +468,10 @@ func TestFetchErrorsCleanUpStaging(t *testing.T) {
 		setup   func(t *testing.T, e *env)
 		wantErr string
 	}{
-		{"az missing", func(t *testing.T, e *env) { e.feed.Missing = true }, "the Azure CLI is required"},
-		{"download fails", func(t *testing.T, e *env) { e.feed.DownloadErr = errors.New("exit status 1") }, "ERROR: package dongle-index not found"},
-		{"package has extra files", func(t *testing.T, e *env) { e.publish(t, "1.0.0", nil); e.feed.ExtraFile = true }, "contains 2 files, expected exactly 1"},
-		{"corrupt archive", func(t *testing.T, e *env) { e.feed.Indexes["1.0.0"] = []byte("garbage") }, "extract index archive"},
+		{"az missing", func(t *testing.T, e *env) { e.feed.missing = true }, "the Azure CLI is required"},
+		{"download fails", func(t *testing.T, e *env) { e.feed.downloadErr = errors.New("exit status 1") }, "ERROR: package not found"},
+		{"package has extra files", func(t *testing.T, e *env) { e.publish(t, "1.0.0", nil); e.feed.extraFile = true }, "contains 2 files, expected exactly 1"},
+		{"corrupt archive", func(t *testing.T, e *env) { e.feed.archives["1.0.0"] = []byte("garbage") }, "extract index archive"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -528,8 +527,8 @@ func TestEnsureCache(t *testing.T) {
 		if err := EnsureCache(); err != nil {
 			t.Fatal(err)
 		}
-		if v := cachedVersion(t); v != "1.0.0" || len(e.feed.Calls) != 0 {
-			t.Fatalf("version %q, az calls %v", v, e.feed.Calls)
+		if v := cachedVersion(t); v != "1.0.0" || len(e.feed.calls) != 0 {
+			t.Fatalf("version %q, az calls %v", v, e.feed.calls)
 		}
 	})
 	t.Run("downloads the latest when nothing is cached", func(t *testing.T) {
@@ -538,7 +537,7 @@ func TestEnsureCache(t *testing.T) {
 		if err := EnsureCache(); err != nil {
 			t.Fatal(err)
 		}
-		if got := e.feed.IndexDownloads(); !reflect.DeepEqual(got, []string{"*"}) {
+		if got := e.feed.downloads(); !reflect.DeepEqual(got, []string{"*"}) {
 			t.Fatalf("downloads = %v, want [*]", got)
 		}
 		if v := cachedVersion(t); v != "3.0.0" {
@@ -575,7 +574,7 @@ func TestPrepare(t *testing.T) {
 		},
 		{
 			name: "first run with the feed unreachable fails", mode: SyncAsk, mutating: true,
-			setup: func(t *testing.T, e *env) { e.feed.DownloadErr = errors.New("exit status 1") },
+			setup: func(t *testing.T, e *env) { e.feed.downloadErr = errors.New("exit status 1") },
 			want:  outcome{err: true, downloads: []string{"*"}},
 		},
 		{
@@ -590,7 +589,7 @@ func TestPrepare(t *testing.T) {
 		},
 		{
 			name: "stale and current marks it checked", mode: SyncAsk, mutating: true,
-			setup: func(t *testing.T, e *env) { cache(t, old, nil, false); e.feed.Latest = old },
+			setup: func(t *testing.T, e *env) { cache(t, old, nil, false); e.feed.latest = old },
 			want:  outcome{queried: true, version: old, fresh: true, stderr: []string{"Plugin index " + old + " is already up to date."}},
 		},
 		{
@@ -601,7 +600,7 @@ func TestPrepare(t *testing.T) {
 		},
 		{
 			name: "feed unreachable keeps the cache", mode: SyncAsk, mutating: true,
-			setup: func(t *testing.T, e *env) { cache(t, old, nil, false); e.feed.QueryErr = errors.New("exit status 1") },
+			setup: func(t *testing.T, e *env) { cache(t, old, nil, false); e.feed.queryErr = errors.New("exit status 1") },
 			want: outcome{queried: true, version: old,
 				stderr: []string{"warning: could not check the feed for a newer plugin index", "Using cached plugin index " + old + "."}},
 		},
@@ -644,8 +643,8 @@ func TestPrepare(t *testing.T) {
 			name: "accepted update that fails to download keeps the cache", mode: SyncAlways, mutating: true,
 			setup: func(t *testing.T, e *env) {
 				cache(t, old, nil, false)
-				e.feed.Latest = newer
-				e.feed.DownloadErr = errors.New("exit status 1")
+				e.feed.latest = newer
+				e.feed.downloadErr = errors.New("exit status 1")
 			},
 			want: outcome{queried: true, downloads: []string{newer}, version: old,
 				stderr: []string{"warning: could not update the plugin index", "Using cached plugin index " + old + "."}},
@@ -664,17 +663,17 @@ func TestPrepare(t *testing.T) {
 			if stdout != "" {
 				t.Errorf("Prepare wrote to stdout: %q", stdout)
 			}
-			if got := e.feed.Queries() > 0; got != w.queried {
+			if got := e.feed.queries() > 0; got != w.queried {
 				t.Errorf("queried feed = %v, want %v", got, w.queried)
 			}
-			if got := e.feed.IndexDownloads(); !reflect.DeepEqual(got, w.downloads) {
+			if got := e.feed.downloads(); !reflect.DeepEqual(got, w.downloads) {
 				t.Errorf("downloads = %v, want %v", got, w.downloads)
 			}
 			if got := len(e.prompt.asked) > 0; got != w.asked {
 				t.Errorf("prompted = %v, want %v", got, w.asked)
 			}
 			if w.asked {
-				testutil.MustContain(t, "prompt", e.prompt.asked[0], "A newer plugin index is available ("+old+" -> "+newer+")")
+				mustContain(t, "prompt", e.prompt.asked[0], "A newer plugin index is available ("+old+" -> "+newer+")")
 			}
 			if got := cachedVersion(t); got != w.version {
 				t.Errorf("cached version = %q, want %q", got, w.version)
@@ -682,8 +681,8 @@ func TestPrepare(t *testing.T) {
 			if got := IsFresh(CheckTTL); got != w.fresh {
 				t.Errorf("fresh = %v, want %v", got, w.fresh)
 			}
-			testutil.MustContain(t, "stderr", stderr, w.stderr...)
-			testutil.MustNotContain(t, "stderr", stderr, w.notStderr...)
+			mustContain(t, "stderr", stderr, w.stderr...)
+			mustNotContain(t, "stderr", stderr, w.notStderr...)
 			if len(w.stderr) == 0 && !w.err && stderr != "" {
 				t.Errorf("want silence, got stderr:\n%s", stderr)
 			}
@@ -697,20 +696,20 @@ func TestUpdate(t *testing.T) {
 	t.Run("current index is confirmed, not re-downloaded", func(t *testing.T) {
 		e := newEnv(t)
 		cache(t, "1.0.0", map[string]string{"deploy": manifest("deploy", "1.0.0")}, false)
-		e.feed.Latest = "1.0.0"
+		e.feed.latest = "1.0.0"
 		var err error
 		stdout, stderr := testutil.Capture(t, func() { err = Update() })
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(e.feed.IndexDownloads()) != 0 {
+		if len(e.feed.downloads()) != 0 {
 			t.Fatal("downloaded an index that was already current")
 		}
 		if !IsFresh(CheckTTL) {
 			t.Fatal("confirmed index not stamped fresh")
 		}
-		testutil.MustContain(t, "stderr", stderr, "Plugin index 1.0.0 is already up to date.")
-		testutil.MustContain(t, "stdout", stdout, "index", "1.0.0", "(already the latest)", "deploy")
+		mustContain(t, "stderr", stderr, "Plugin index 1.0.0 is already up to date.")
+		mustContain(t, "stdout", stdout, "index", "1.0.0", "(already the latest)", "deploy")
 	})
 	t.Run("ignores the TTL and downloads a newer index", func(t *testing.T) {
 		e := newEnv(t)
@@ -721,11 +720,11 @@ func TestUpdate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := e.feed.IndexDownloads(); !reflect.DeepEqual(got, []string{"1.1.0"}) {
+		if got := e.feed.downloads(); !reflect.DeepEqual(got, []string{"1.1.0"}) {
 			t.Fatalf("downloads = %v", got)
 		}
-		testutil.MustContain(t, "stderr", stderr, "Updated plugin index 1.0.0 -> 1.1.0.")
-		testutil.MustContain(t, "stdout", stdout, "1.1.0", "(updated from 1.0.0)", "deploy")
+		mustContain(t, "stderr", stderr, "Updated plugin index 1.0.0 -> 1.1.0.")
+		mustContain(t, "stdout", stdout, "1.1.0", "(updated from 1.0.0)", "deploy")
 	})
 	t.Run("first download", func(t *testing.T) {
 		e := newEnv(t)
@@ -735,13 +734,13 @@ func TestUpdate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		testutil.MustContain(t, "stderr", stderr, "Plugin index 1.1.0 is the latest.")
-		testutil.MustContain(t, "stdout", stdout, "plugins:  none")
+		mustContain(t, "stderr", stderr, "Plugin index 1.1.0 is the latest.")
+		mustContain(t, "stdout", stdout, "plugins:  none")
 	})
 	t.Run("feed failure keeps the cache and reports it", func(t *testing.T) {
 		e := newEnv(t)
 		cache(t, "1.0.0", nil, false)
-		e.feed.QueryErr = errors.New("exit status 1")
+		e.feed.queryErr = errors.New("exit status 1")
 		var err error
 		stdout, stderr := testutil.Capture(t, func() { err = Update() })
 		if err == nil {
@@ -750,12 +749,12 @@ func TestUpdate(t *testing.T) {
 		if stdout != "" {
 			t.Fatalf("stdout = %q", stdout)
 		}
-		testutil.MustContain(t, "stderr", stderr, "error: could not update the plugin index", "Still using plugin index 1.0.0.")
+		mustContain(t, "stderr", stderr, "error: could not update the plugin index", "Still using plugin index 1.0.0.")
 	})
 	t.Run("download failure with nothing cached leaves nothing cached", func(t *testing.T) {
 		e := newEnv(t)
-		e.feed.Latest = "1.0.0"
-		e.feed.DownloadErr = errors.New("exit status 1")
+		e.feed.latest = "1.0.0"
+		e.feed.downloadErr = errors.New("exit status 1")
 		var err error
 		_, stderr := testutil.Capture(t, func() { err = Update() })
 		if err == nil {
@@ -764,8 +763,8 @@ func TestUpdate(t *testing.T) {
 		if HasCache() {
 			t.Fatal("a failed first download must not leave a cache behind")
 		}
-		testutil.MustContain(t, "stderr", stderr, "error: could not update the plugin index")
-		testutil.MustNotContain(t, "stderr", stderr, "Still using")
+		mustContain(t, "stderr", stderr, "error: could not update the plugin index")
+		mustNotContain(t, "stderr", stderr, "Still using")
 	})
 }
 
@@ -794,7 +793,7 @@ func TestWriteSummary(t *testing.T) {
 	if len(lines) != 6 {
 		t.Fatalf("got %d lines:\n%s", len(lines), buf.String())
 	}
-	testutil.MustContain(t, "index line", lines[0], "index", "2.0.0", "(updated from 1.0.0)")
+	mustContain(t, "index line", lines[0], "index", "2.0.0", "(updated from 1.0.0)")
 	if lines[1] != "plugins:" {
 		t.Fatalf("heading = %q", lines[1])
 	}
@@ -830,13 +829,13 @@ func TestWriteSummaryEmptyIndexAndBadState(t *testing.T) {
 	os.WriteFile(filepath.Join(state.DataDir(), "state.json"), []byte("{bad"), 0o644)
 	var buf bytes.Buffer
 	WriteSummary(&buf, ui.Palette{}, "")
-	testutil.MustContain(t, "summary", buf.String(), "deploy")
-	testutil.MustNotContain(t, "summary", buf.String(), "installed")
+	mustContain(t, "summary", buf.String(), "deploy")
+	mustNotContain(t, "summary", buf.String(), "installed")
 
 	os.RemoveAll(filepath.Join(cacheDir(), "plugins"))
 	buf.Reset()
 	WriteSummary(&buf, ui.Palette{}, "")
-	testutil.MustContain(t, "summary", buf.String(), "plugins:  none")
+	mustContain(t, "summary", buf.String(), "plugins:  none")
 }
 
 // --- defaults.yaml ----------------------------------------------------------------
@@ -867,12 +866,12 @@ func TestParseDefaultsFileMissing(t *testing.T) {
 func TestFetchedIndexLoadAndDefaults(t *testing.T) {
 	e := newEnv(t)
 	cache(t, "1.0.0", map[string]string{"old": manifest("old", "1.0.0")}, false)
-	archive := testutil.TarGz(t, map[string]string{
+	archive := tarGz(t, map[string]string{
 		"VERSION":             "2.0.0",
 		DefaultsFile:          "defaults:\n  - deploy\n",
 		"plugins/deploy.yaml": manifest("deploy", "1.2.0"),
 	})
-	e.feed.Indexes["*"] = archive
+	e.feed.archives["*"] = archive
 
 	l, err := Fetch("*")
 	if err != nil {
@@ -901,7 +900,7 @@ func TestFetchedIndexLoadAndDefaults(t *testing.T) {
 
 func TestFetchedIndexWithoutDefaultsFile(t *testing.T) {
 	e := newEnv(t)
-	e.feed.Indexes["*"] = indexArchive(t, "2.0.0", nil)
+	e.feed.archives["*"] = indexArchive(t, "2.0.0", nil)
 	l, err := Fetch("*")
 	if err != nil {
 		t.Fatal(err)

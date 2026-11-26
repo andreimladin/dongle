@@ -13,5 +13,5 @@ func TestUpdateFailureIsExitOne(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	testutil.MustContain(t, "stderr", stderr, "could not update the plugin index")
+	mustContain(t, "stderr", stderr, "could not update the plugin index")
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andreimladin/dongle/internal/azcli/azclitest"
 	"github.com/andreimladin/dongle/internal/compat"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
@@ -24,13 +23,13 @@ func TestInstall(t *testing.T) {
 	}
 
 	// The right package was requested from the plugin's own feed.
-	if len(f.PluginCalls()) != 1 {
-		t.Fatalf("az calls = %v", f.PluginCalls())
+	if len(f.calls) != 1 {
+		t.Fatalf("az calls = %v", f.calls)
 	}
-	args := strings.Join(f.PluginCalls()[0], " ")
-	testutil.MustContain(t, "az args", args, "artifacts universal download", "--organization https://dev.azure.com/acme",
+	args := strings.Join(f.calls[0], " ")
+	mustContain(t, "az args", args, "artifacts universal download", "--organization https://dev.azure.com/acme",
 		"--feed plugins", "--name "+pkgName("deploy"), "--version 1.2.0 ") // upack versions are bare semver
-	testutil.MustNotContain(t, "az args", args, "--project")
+	mustNotContain(t, "az args", args, "--project")
 
 	// The downloaded file is placed under the canonical entrypoint name,
 	// executable — dongle-<plugin>, not named after the running binary
@@ -55,8 +54,8 @@ func TestInstall(t *testing.T) {
 		t.Fatalf("state = %+v, want %+v", got, want)
 	}
 
-	testutil.MustContain(t, "stdout", stdout, "Installed deploy 1.2.0", "(run it with: dongle deploy)")
-	testutil.MustContain(t, "stderr", stderr, "Installing deploy 1.2.0...")
+	mustContain(t, "stdout", stdout, "Installed deploy 1.2.0", "(run it with: dongle deploy)")
+	mustContain(t, "stderr", stderr, "Installing deploy 1.2.0...")
 	if entries, _ := os.ReadDir(filepath.Join(state.DataDir(), ".staging")); len(entries) != 0 {
 		t.Fatalf("staging left behind: %v", entries)
 	}
@@ -70,7 +69,7 @@ func TestInstallProjectScopedFeed(t *testing.T) {
 	if code := quiet(t, func() int { return Install(host, proto, "deploy", index.SyncAsk) }); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	testutil.MustContain(t, "az args", strings.Join(f.PluginCalls()[0], " "), "--project tools --scope project")
+	mustContain(t, "az args", strings.Join(f.calls[0], " "), "--project tools --scope project")
 }
 
 func TestInstallAlreadyInstalled(t *testing.T) {
@@ -97,8 +96,8 @@ func TestInstallAlreadyInstalled(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 			}
-			testutil.MustContain(t, "stderr", stderr, c.wantMsg)
-			if len(f.PluginCalls()) != 0 || loadState(t).Plugins["deploy"].ActiveVersion != "1.0.0" {
+			mustContain(t, "stderr", stderr, c.wantMsg)
+			if len(f.calls) != 0 || loadState(t).Plugins["deploy"].ActiveVersion != "1.0.0" {
 				t.Fatal("an installed plugin must be left alone")
 			}
 		})
@@ -108,20 +107,20 @@ func TestInstallAlreadyInstalled(t *testing.T) {
 func TestInstallFailures(t *testing.T) {
 	cases := []struct {
 		name       string
-		setup      func(t *testing.T, f *azclitest.Feed)
+		setup      func(t *testing.T, f *fakeAz)
 		plugin     string
 		wantStderr []string
 		wantAz     bool // whether a download should have been attempted
 	}{
 		{
 			name:       "not in the index",
-			setup:      func(t *testing.T, f *azclitest.Feed) { cacheIndex(t, "1", deploy) },
+			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1", deploy) },
 			plugin:     "nope",
 			wantStderr: []string{"error: no plugin named nope in the index (see `dongle search`)"},
 		},
 		{
 			name: "host too old",
-			setup: func(t *testing.T, f *azclitest.Feed) {
+			setup: func(t *testing.T, f *fakeAz) {
 				p := deploy
 				p.host = ">=9.0.0"
 				cacheIndex(t, "1", p)
@@ -130,7 +129,7 @@ func TestInstallFailures(t *testing.T) {
 		},
 		{
 			name: "protocol mismatch",
-			setup: func(t *testing.T, f *azclitest.Feed) {
+			setup: func(t *testing.T, f *fakeAz) {
 				p := deploy
 				p.protocol = "v2"
 				cacheIndex(t, "1", p)
@@ -139,7 +138,7 @@ func TestInstallFailures(t *testing.T) {
 		},
 		{
 			name: "bad constraint",
-			setup: func(t *testing.T, f *azclitest.Feed) {
+			setup: func(t *testing.T, f *fakeAz) {
 				p := deploy
 				p.host = ">=soon"
 				cacheIndex(t, "1", p)
@@ -148,7 +147,7 @@ func TestInstallFailures(t *testing.T) {
 		},
 		{
 			name: "no build for this platform",
-			setup: func(t *testing.T, f *azclitest.Feed) {
+			setup: func(t *testing.T, f *fakeAz) {
 				p := deploy
 				p.noPlatform = true
 				cacheIndex(t, "1", p)
@@ -157,37 +156,34 @@ func TestInstallFailures(t *testing.T) {
 		},
 		{
 			name:       "invalid manifest",
-			setup:      func(t *testing.T, f *azclitest.Feed) { cacheIndex(t, "1"); writeIndexFile(t, "deploy", "name: [") },
+			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1"); writeIndexFile(t, "deploy", "name: [") },
 			wantStderr: []string{"invalid manifest for deploy"},
 		},
 		{
-			name: "download fails",
-			setup: func(t *testing.T, f *azclitest.Feed) {
-				cacheIndex(t, "1", deploy)
-				f.FailPackages[pkgName("deploy")] = true
-			},
+			name:       "download fails",
+			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1", deploy); f.failFor[pkgName("deploy")] = true },
 			wantStderr: []string{"az download " + pkgName("deploy") + "@1.2.0", "ERROR: unauthorized"},
 			wantAz:     true,
 		},
 		{
 			name:       "package with several files",
-			setup:      func(t *testing.T, f *azclitest.Feed) { cacheIndex(t, "1", deploy); f.ExtraFile = true },
+			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1", deploy); f.extra = true },
 			wantStderr: []string{"contains 2 files, expected exactly 1"},
 			wantAz:     true,
 		},
 		{
 			name:       "az not installed",
-			setup:      func(t *testing.T, f *azclitest.Feed) { cacheIndex(t, "1", deploy); f.Missing = true },
+			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1", deploy); f.missing = true },
 			wantStderr: []string{"the Azure CLI is required"},
 		},
 		{
 			name:       "no index and no feed",
-			setup:      func(t *testing.T, f *azclitest.Feed) {},
+			setup:      func(t *testing.T, f *fakeAz) {},
 			wantStderr: []string{"error:", "ERROR: package " + indexPackage + " not found"},
 		},
 		{
 			name:       "unreadable state",
-			setup:      func(t *testing.T, f *azclitest.Feed) { cacheIndex(t, "1", deploy); corruptState(t) },
+			setup:      func(t *testing.T, f *fakeAz) { cacheIndex(t, "1", deploy); corruptState(t) },
 			wantStderr: []string{"error:"},
 		},
 	}
@@ -207,8 +203,8 @@ func TestInstallFailures(t *testing.T) {
 			if stdout != "" {
 				t.Errorf("stdout = %q, want nothing on failure", stdout)
 			}
-			testutil.MustContain(t, "stderr", stderr, c.wantStderr...)
-			if got := len(f.PluginCalls()) > 0; got != c.wantAz {
+			mustContain(t, "stderr", stderr, c.wantStderr...)
+			if got := len(f.calls) > 0; got != c.wantAz {
 				t.Errorf("download attempted = %v, want %v", got, c.wantAz)
 			}
 			if st, err := state.Load(); err == nil {

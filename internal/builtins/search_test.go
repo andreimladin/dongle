@@ -42,7 +42,7 @@ func TestSearchEdgeCases(t *testing.T) {
 		if code != 0 || stdout != "" {
 			t.Fatalf("exit %d stdout %q", code, stdout)
 		}
-		testutil.MustContain(t, "stderr", stderr, "The plugin index is empty.")
+		mustContain(t, "stderr", stderr, "The plugin index is empty.")
 	})
 	t.Run("no index available", func(t *testing.T) {
 		newEnv(t)
@@ -71,14 +71,14 @@ func TestSupport(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	testutil.MustContain(t, "stdout", stdout, "deploy — support", "Documentation:", "https://docs.example/deploy", "Channel:", "#deploy")
-	testutil.MustNotContain(t, "stdout", stdout, "Contact:")
+	mustContain(t, "stdout", stdout, "deploy — support", "Documentation:", "https://docs.example/deploy", "Channel:", "#deploy")
+	mustNotContain(t, "stdout", stdout, "Contact:")
 
 	stdout, _ = testutil.Capture(t, func() { code = Support("withcontact") })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	testutil.MustContain(t, "stdout", stdout, "Contact:", "ops@example.com")
+	mustContain(t, "stdout", stdout, "Contact:", "ops@example.com")
 }
 
 func TestSupportFailures(t *testing.T) {
@@ -92,7 +92,7 @@ func TestSupportFailures(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	testutil.MustContain(t, "stderr", stderr, "no plugin named deploy in the index")
+	mustContain(t, "stderr", stderr, "no plugin named deploy in the index")
 	writeIndexFile(t, "deploy", "name: [")
 	if code := quiet(t, func() int { return Support("deploy") }); code != 1 {
 		t.Fatalf("invalid manifest: exit %d", code)

@@ -27,14 +27,10 @@ behind small seams swapped for fakes in tests: `azcli.Default` (the `az` CLI, an
 `azcli.Runner` used for every feed access — index downloads in `internal/index`,
 plugin downloads in `internal/builtins` — so one fake controls the whole feed,
 first-run initialization included), `index.prompt` (the update prompt) and
-`dispatch.runner` (plugin exec). The fake for `azcli.Default` is shared:
-`internal/azcli/azclitest.Feed` (`azclitest.Install(t, feed)`), an in-memory feed
-that answers the index query, index downloads and plugin downloads. Tests use
+`dispatch.runner` (plugin exec). Tests use
 `internal/testutil.Isolate` (temp `HOME` so `~/.dongle` is a temp dir, empty
-`PATH`, so no real `az` or feed), `testutil.Capture` (stdout/stderr),
-`testutil.MustContain`/`MustNotContain` (substring assertions) and
-`testutil.TarGz` (index archives). `azclitest` and `testutil` are imported only by
-tests, so they're never linked into the binary.
+`PATH`, so no real `az` or feed)
+and `testutil.Capture` (stdout/stderr).
 
 `demo.sh` builds the host and the sample `deploy` plugin, stages a plugin
 "release" dir (binary + `plugin.json`), then runs through

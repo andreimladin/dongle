@@ -3,7 +3,6 @@ package builtins
 import (
 	"testing"
 
-	"github.com/andreimladin/dongle/internal/azcli/azclitest"
 	"github.com/andreimladin/dongle/internal/index"
 	"github.com/andreimladin/dongle/internal/state"
 	"github.com/andreimladin/dongle/internal/testutil"
@@ -64,11 +63,11 @@ func TestUpgradeOne(t *testing.T) {
 			if got := loadState(t).Plugins["deploy"].ActiveVersion; got != c.wantVer {
 				t.Errorf("installed version = %q, want %q", got, c.wantVer)
 			}
-			if got := len(f.PluginCalls()) > 0; got != c.wantAz {
+			if got := len(f.calls) > 0; got != c.wantAz {
 				t.Errorf("downloaded = %v, want %v", got, c.wantAz)
 			}
-			testutil.MustContain(t, "stdout", stdout, c.wantStdout...)
-			testutil.MustContain(t, "stderr", stderr, c.wantStderr...)
+			mustContain(t, "stdout", stdout, c.wantStdout...)
+			mustContain(t, "stderr", stderr, c.wantStderr...)
 		})
 	}
 }
@@ -91,8 +90,8 @@ func TestUpgradeAll(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
-	if len(f.PluginCalls()) != 1 || azclitest.FlagValue(f.PluginCalls()[0], "--name") != pkgName("alpha") {
-		t.Fatalf("az calls = %v, want one download of alpha", f.PluginCalls())
+	if len(f.calls) != 1 || flagValue(f.calls[0], "--name") != pkgName("alpha") {
+		t.Fatalf("az calls = %v, want one download of alpha", f.calls)
 	}
 	st := loadState(t)
 	for name, want := range map[string]string{"alpha": "1.1.0", "bravo": "1.0.0", "charlie": "2.0.0", "delta": "1.0.0"} {
@@ -100,12 +99,12 @@ func TestUpgradeAll(t *testing.T) {
 			t.Errorf("%s = %s, want %s", name, got, want)
 		}
 	}
-	testutil.MustContain(t, "stdout", stdout, "Upgraded alpha 1.0.0 -> 1.1.0", "bravo is already up to date")
-	testutil.MustContain(t, "stderr", stderr,
+	mustContain(t, "stdout", stdout, "Upgraded alpha 1.0.0 -> 1.1.0", "bravo is already up to date")
+	mustContain(t, "stderr", stderr,
 		"warning: skipping installed charlie 2.0.0 is newer than the index",
 		"warning: skipping delta is not in the index",
 		"1 upgraded, 1 already up to date, 2 skipped, 0 failed")
-	testutil.MustNotContain(t, "stderr", stderr, "error:")
+	mustNotContain(t, "stderr", stderr, "error:")
 }
 
 func TestUpgradeAllReportsFailures(t *testing.T) {
@@ -114,7 +113,7 @@ func TestUpgradeAllReportsFailures(t *testing.T) {
 	installed(t,
 		state.Installed{Name: "alpha", ActiveVersion: "1.0.0"},
 		state.Installed{Name: "bravo", ActiveVersion: "1.0.0"})
-	f.FailPackages[pkgName("alpha")] = true
+	f.failFor[pkgName("alpha")] = true
 
 	var code int
 	_, stderr := testutil.Capture(t, func() { code = Upgrade(host, proto, "", index.SyncAsk) })
@@ -125,7 +124,7 @@ func TestUpgradeAllReportsFailures(t *testing.T) {
 	if v := loadState(t).Plugins["bravo"].ActiveVersion; v != "1.1.0" {
 		t.Fatalf("bravo = %s, want upgraded despite alpha failing", v)
 	}
-	testutil.MustContain(t, "stderr", stderr, "error: 1 upgraded, 0 already up to date, 0 skipped, 1 failed")
+	mustContain(t, "stderr", stderr, "error: 1 upgraded, 0 already up to date, 0 skipped, 1 failed")
 }
 
 func TestUpgradePreconditions(t *testing.T) {
@@ -136,7 +135,7 @@ func TestUpgradePreconditions(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("exit %d", code)
 		}
-		testutil.MustContain(t, "stderr", stderr, "deploy is not installed; use `dongle install deploy`")
+		mustContain(t, "stderr", stderr, "deploy is not installed; use `dongle install deploy`")
 	})
 	t.Run("nothing installed", func(t *testing.T) {
 		newEnv(t)
@@ -146,7 +145,7 @@ func TestUpgradePreconditions(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 		}
-		testutil.MustContain(t, "stderr", stderr, "No plugins installed; nothing to upgrade.")
+		mustContain(t, "stderr", stderr, "No plugins installed; nothing to upgrade.")
 	})
 	t.Run("index unavailable", func(t *testing.T) {
 		newEnv(t)

@@ -13,7 +13,7 @@ func TestSupport(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, stderr)
 	}
-	testutil.MustContain(t, "stdout", stdout, "deploy — support", "https://docs.example/deploy", "#deploy")
+	mustContain(t, "stdout", stdout, "deploy — support", "https://docs.example/deploy", "#deploy")
 }
 
 func TestSupportErrors(t *testing.T) {
@@ -23,11 +23,11 @@ func TestSupportErrors(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("unknown plugin: exit %d, want 1", code)
 	}
-	testutil.MustContain(t, "stderr", stderr, "no plugin named nope in the index")
+	mustContain(t, "stderr", stderr, "no plugin named nope in the index")
 
 	code, _, stderr = run(t, "support")
 	if code != 2 {
 		t.Fatalf("no plugin name: exit %d, want 2", code)
 	}
-	testutil.MustContain(t, "stderr", stderr, "accepts 1 arg(s), received 0")
+	mustContain(t, "stderr", stderr, "accepts 1 arg(s), received 0")
 }
