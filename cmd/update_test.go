@@ -15,7 +15,7 @@ func TestUpdate(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("stdout = %q, want nothing on failure", stdout)
 	}
-	mustContain(t, "stderr", stderr, "error: could not update the plugin index")
+	testutil.MustContain(t, "stderr", stderr, "error: could not update the plugin index")
 }
 
 func TestUpdateTakesNoArgs(t *testing.T) {
@@ -24,5 +24,5 @@ func TestUpdateTakesNoArgs(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit %d, want 2", code)
 	}
-	mustContain(t, "stderr", stderr, `unknown command "deploy"`, "Run 'dongle update --help' for usage.")
+	testutil.MustContain(t, "stderr", stderr, `unknown command "deploy"`, "Run 'dongle update --help' for usage.")
 }

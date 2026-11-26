@@ -18,7 +18,7 @@ func TestHelp(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%v: exit %d", args, code)
 		}
-		mustContain(t, "help", stdout, "dongle <command> [flags]", "dongle <plugin> [args...]", "search", "install")
+		testutil.MustContain(t, "help", stdout, "dongle <command> [flags]", "dongle <plugin> [args...]", "search", "install")
 		if strings.Contains(stdout, "completion") {
 			t.Errorf("%v: completion command should be disabled", args)
 		}
@@ -31,7 +31,7 @@ func TestVersionFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	mustContain(t, "stdout", stdout, "dongle", hostVersion, "no plugins installed")
+	testutil.MustContain(t, "stdout", stdout, "dongle", hostVersion, "no plugins installed")
 }
 
 func TestUnknownCommands(t *testing.T) {
@@ -59,7 +59,7 @@ func TestUnknownCommands(t *testing.T) {
 			if stdout != "" {
 				t.Errorf("usage errors go to stderr; stdout = %q", stdout)
 			}
-			mustContain(t, "stderr", stderr, c.stderr...)
+			testutil.MustContain(t, "stderr", stderr, c.stderr...)
 		})
 	}
 }
@@ -80,7 +80,7 @@ func TestCobraUsageErrorsExitTwo(t *testing.T) {
 		if code != 2 {
 			t.Errorf("%v: exit %d, want 2", c.args, code)
 		}
-		mustContain(t, strings.Join(c.args, " "), stderr, c.stderr...)
+		testutil.MustContain(t, strings.Join(c.args, " "), stderr, c.stderr...)
 	}
 }
 
@@ -90,7 +90,7 @@ func TestBuiltinExitCodePropagates(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
-	mustContain(t, "stderr", stderr, "error: deploy is not installed")
+	testutil.MustContain(t, "stderr", stderr, "error: deploy is not installed")
 	// exitError carries no message of its own; cobra must not add one.
 	if strings.Count(stderr, "error:") != 1 {
 		t.Fatalf("want exactly one error line, got:\n%s", stderr)
@@ -145,7 +145,7 @@ func TestUnreadableStateWhenResolvingPlugin(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	mustContain(t, "stderr", stderr, "error: reading state:")
+	testutil.MustContain(t, "stderr", stderr, "error: reading state:")
 }
 
 // First-run initialization runs before every command; when it fails (here:
@@ -164,5 +164,5 @@ func TestFirstRunFailureStopsTheCommand(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("the command ran despite the failed first run: stdout %q", stdout)
 	}
-	mustContain(t, "stderr", stderr, "couldn't reach the feed to initialize dongle", "run dongle again to retry")
+	testutil.MustContain(t, "stderr", stderr, "couldn't reach the feed to initialize dongle", "run dongle again to retry")
 }

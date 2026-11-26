@@ -35,7 +35,7 @@ func TestRemove(t *testing.T) {
 	if _, err := os.Stat(state.PluginVersionDir("other", "2.0.0")); err != nil {
 		t.Fatal("other plugin's files were touched")
 	}
-	mustContain(t, "stdout", stdout, "Removed deploy")
+	testutil.MustContain(t, "stdout", stdout, "Removed deploy")
 }
 
 func TestRemoveFailures(t *testing.T) {
@@ -45,7 +45,7 @@ func TestRemoveFailures(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	mustContain(t, "stderr", stderr, "error: deploy is not installed")
+	testutil.MustContain(t, "stderr", stderr, "error: deploy is not installed")
 
 	corruptState(t)
 	if code := quiet(t, func() int { return Remove("deploy") }); code != 1 {

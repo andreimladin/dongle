@@ -1,116 +1,14 @@
 package index
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/andreimladin/dongle/internal/azcli"
+	"github.com/andreimladin/dongle/internal/azcli/azclitest"
 	"github.com/andreimladin/dongle/internal/testutil"
 )
-
-// fakeFeed stands in for the `az` CLI talking to the Azure Artifacts feed:
-// `az devops invoke` answers with latest, `az artifacts universal
-// download` drops the archive registered for the requested version.
-type fakeFeed struct {
-	missing     bool              // az not installed
-	latest      string            // what the feed reports as the latest index version
-	queryErr    error             // fail `devops invoke`
-	archives    map[string][]byte // version ("*" for latest) -> index.tar.gz bytes
-	downloadErr error             // fail `artifacts universal download`
-	extraFile   bool              // download drops a second file next to the archive
-	calls       [][]string
-}
-
-func (f *fakeFeed) LookPath() error {
-	if f.missing {
-		return errors.New("exec: \"az\": executable file not found in $PATH")
-	}
-	return nil
-}
-
-func (f *fakeFeed) Run(args []string, stdout, stderr io.Writer) error {
-	f.calls = append(f.calls, args)
-	switch {
-	case len(args) > 1 && args[0] == "devops" && args[1] == "invoke":
-		if f.queryErr != nil {
-			fmt.Fprint(stderr, "ERROR: unauthorized")
-			return f.queryErr
-		}
-		body, _ := json.Marshal(map[string]any{"value": []any{map[string]any{
-			"name":     argAfter(args, "packageNameQuery="),
-			"versions": []any{map[string]any{"version": f.latest, "isLatest": true}},
-		}}})
-		_, _ = stdout.Write(body)
-		return nil
-	case len(args) > 2 && args[0] == "artifacts" && args[2] == "download":
-		if f.downloadErr != nil {
-			fmt.Fprint(stderr, "ERROR: package not found")
-			return f.downloadErr
-		}
-		dest, version := flagValue(args, "--path"), flagValue(args, "--version")
-		archive, ok := f.archives[version]
-		if !ok {
-			return fmt.Errorf("fake feed has no archive for version %q", version)
-		}
-		if err := os.WriteFile(filepath.Join(dest, "index.tar.gz"), archive, 0o644); err != nil {
-			return err
-		}
-		if f.extraFile {
-			return os.WriteFile(filepath.Join(dest, "README"), nil, 0o644)
-		}
-		return nil
-	}
-	return fmt.Errorf("fake feed: unexpected az %v", args)
-}
-
-// downloads returns the --version of every download call, in order.
-func (f *fakeFeed) downloads() []string {
-	var out []string
-	for _, c := range f.calls {
-		if c[0] == "artifacts" {
-			out = append(out, flagValue(c, "--version"))
-		}
-	}
-	return out
-}
-
-func (f *fakeFeed) queries() int {
-	n := 0
-	for _, c := range f.calls {
-		if c[0] == "devops" {
-			n++
-		}
-	}
-	return n
-}
-
-func flagValue(args []string, flag string) string {
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == flag {
-			return args[i+1]
-		}
-	}
-	return ""
-}
-
-// argAfter returns the remainder of the first arg with the given prefix.
-func argAfter(args []string, prefix string) string {
-	for _, a := range args {
-		if strings.HasPrefix(a, prefix) {
-			return strings.TrimPrefix(a, prefix)
-		}
-	}
-	return ""
-}
 
 // fakePrompt records whether it was asked and answers with answer.
 type fakePrompt struct {
@@ -128,17 +26,18 @@ func (p *fakePrompt) Confirm(q string) bool {
 // env is one isolated test environment: an empty data dir and fakes for
 // every external dependency of this package.
 type env struct {
-	feed   *fakeFeed
+	feed   *azclitest.Feed
 	prompt *fakePrompt
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	testutil.Isolate(t)
-	e := &env{feed: &fakeFeed{archives: map[string][]byte{}}, prompt: &fakePrompt{}}
-	origAz, origPrompt := azcli.Default, prompt
-	azcli.Default, prompt = e.feed, e.prompt
-	t.Cleanup(func() { azcli.Default, prompt = origAz, origPrompt })
+	e := &env{feed: azclitest.New("dongle-index"), prompt: &fakePrompt{}}
+	azclitest.Install(t, e.feed)
+	origPrompt := prompt
+	prompt = e.prompt
+	t.Cleanup(func() { prompt = origPrompt })
 	SetDefaults("org", "", "feed", "dongle-index")
 	return e
 }
@@ -147,10 +46,7 @@ func newEnv(t *testing.T) *env {
 // the fake feed, under both its version and "*".
 func (e *env) publish(t *testing.T, version string, plugins map[string]string) {
 	t.Helper()
-	a := indexArchive(t, version, plugins)
-	e.feed.archives[version] = a
-	e.feed.archives["*"] = a
-	e.feed.latest = version
+	e.feed.Publish(version, indexArchive(t, version, plugins))
 }
 
 // cache writes an index straight into the cache, as a previous download
@@ -189,47 +85,7 @@ func indexArchive(t *testing.T, version string, plugins map[string]string) []byt
 	for name, body := range plugins {
 		files["plugins/"+name+".yaml"] = body
 	}
-	return tarGz(t, files)
-}
-
-func tarGz(t *testing.T, files map[string]string) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	for name, body := range files {
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tw.Write([]byte(body)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-func mustContain(t *testing.T, what, got string, wants ...string) {
-	t.Helper()
-	for _, w := range wants {
-		if !strings.Contains(got, w) {
-			t.Errorf("%s missing %q; got:\n%s", what, w, got)
-		}
-	}
-}
-
-func mustNotContain(t *testing.T, what, got string, nots ...string) {
-	t.Helper()
-	for _, n := range nots {
-		if strings.Contains(got, n) {
-			t.Errorf("%s unexpectedly contains %q; got:\n%s", what, n, got)
-		}
-	}
+	return testutil.TarGz(t, files)
 }
 
 func cachedVersion(t *testing.T) string {

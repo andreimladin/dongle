@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -37,15 +36,6 @@ func resetFlags(c *cobra.Command) {
 	})
 	for _, sub := range c.Commands() {
 		resetFlags(sub)
-	}
-}
-
-func mustContain(t *testing.T, what, got string, wants ...string) {
-	t.Helper()
-	for _, w := range wants {
-		if !strings.Contains(got, w) {
-			t.Errorf("%s missing %q; got:\n%s", what, w, got)
-		}
 	}
 }
 

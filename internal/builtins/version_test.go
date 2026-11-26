@@ -42,7 +42,7 @@ func TestVersion(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("exit %d", code)
 		}
-		mustContain(t, "stderr", stderr, "error: reading state:")
+		testutil.MustContain(t, "stderr", stderr, "error: reading state:")
 	})
 }
 
